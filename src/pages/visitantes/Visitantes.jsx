@@ -308,7 +308,7 @@ function ModalNuevoVisitante({ onClose, onGuardado }) {
                             key={r.id}
                             onClick={() => {
                               setAutForm({ ...autForm, residente_id: r.id });
-                              setBusquedaResidente(`${r.nombre} ${r.apellido} — C.I.: {r.dni}`);
+                              setBusquedaResidente(`${r.nombre} ${r.apellido} — C.I.: ${r.dni}`);
                               setMostrarLista(false);
                             }}
                             className="w-full text-left px-4 py-2.5 hover:bg-warm-50 text-sm flex justify-between items-center"
@@ -648,6 +648,20 @@ export default function Visitas() {
             )}
           </div>
         </div>
+      )}
+
+      {/* RENDERIZADO DE MODALES */}
+      {modalNuevaVisita && (
+        <ModalNuevaVisita 
+          onClose={() => setModalNuevaVisita(false)} 
+          onGuardado={() => queryClient.invalidateQueries(['visitas-activas'])} 
+        />
+      )}
+      {modalNuevoVisitante && (
+        <ModalNuevoVisitante 
+          onClose={() => setModalNuevoVisitante(false)} 
+          onGuardado={() => queryClient.invalidateQueries(['buscar-visitante'])} 
+        />
       )}
     </div>
   )
