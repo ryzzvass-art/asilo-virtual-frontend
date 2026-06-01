@@ -221,7 +221,7 @@ function ModalNuevoVisitante({ onClose, onGuardado }) {
 
   const { data: residentes } = useQuery({
     queryKey: ['residentes-activos'],
-    queryFn: () => residentesService.listar({ estado: 'activo' }),
+    queryFn: () => residentesService.listar({ estado: 'activo' ,limit: 100}),
     enabled: autorizarAhora,
   })
 
