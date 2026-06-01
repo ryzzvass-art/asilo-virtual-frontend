@@ -220,10 +220,15 @@ function ModalNuevoVisitante({ onClose, onGuardado }) {
   const [error, setError] = useState('')
 
   const { data: residentes } = useQuery({
-    queryKey: ['residentes-activos'],
-    queryFn: () => residentesService.listar({ estado: 'activo' ,limit: 100}),
-    enabled: autorizarAhora,
-  })
+  queryKey: ['residentes-activos-todos'],
+  queryFn: () => residentesService.listar({ 
+    estado: 'activo',
+    page_size: 500,     // o el máximo que permita tu backend
+    // page: 1  // no es necesario
+  }),
+  enabled: autorizarAhora,
+  select: (data) => data.results || data, // por si devuelve {results} o array directo
+})
 
   const mutation = useMutation({
     mutationFn: async (data) => {
