@@ -1,4 +1,3 @@
-// src/pages/visitantes/Visitantes.jsx
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -219,16 +218,26 @@ function ModalNuevoVisitante({ onClose, onGuardado }) {
   const [autForm, setAutForm] = useState({ residente_id: '', relacion: 'familiar' })
   const [error, setError] = useState('')
 
-  const { data: residentes } = useQuery({
-  queryKey: ['residentes-activos-todos'],
-  queryFn: () => residentesService.listar({ 
-    estado: 'activo',
-    page_size: 500,     // o el máximo que permita tu backend
-    // page: 1  // no es necesario
-  }),
-  enabled: autorizarAhora,
-  select: (data) => data.results || data, // por si devuelve {results} o array directo
-})
+  // Estados agregados para el buscador de residentes
+  const [busquedaResidente, setBusquedaResidente] = useState('')
+  const [mostrarLista, setMostrarLista] = useState(false)
+
+  // Consulta de residentes actualizada
+  const { data: residentesData } = useQuery({
+    queryKey: ['residentes-activos-todos'],
+    queryFn: () => residentesService.listar({ 
+      estado: 'activo',
+      page_size: 200,
+    }),
+    enabled: autorizarAhora,
+  })
+  const residentes = residentesData?.results || residentesData || []
+
+  // Filtrado en cliente
+  const residentesFiltrados = residentes?.filter(r => {
+    const texto = `${r.nombre} ${r.apellido} ${r.dni}`.toLowerCase()
+    return texto.includes(busquedaResidente.toLowerCase())
+  }) || []
 
   const mutation = useMutation({
     mutationFn: async (data) => {
@@ -267,26 +276,73 @@ function ModalNuevoVisitante({ onClose, onGuardado }) {
             </div>
           ))}
 
+          {/* ==================== AUTORIZAR AHORA ==================== */}
           <div className="border-t border-cream-400 pt-4">
-            <label className="flex items-center gap-2 cursor-pointer">
+            <label className="flex items-center gap-2 cursor-pointer mb-3">
               <input type="checkbox" checked={autorizarAhora}
                 onChange={e => setAutorizarAhora(e.target.checked)}
                 className="w-4 h-4 rounded accent-warm-500" />
               <span className="text-sm font-semibold text-warm-700">Autorizar a un residente ahora</span>
             </label>
             {autorizarAhora && (
-              <div className="space-y-3 mt-3">
-                <select value={autForm.residente_id}
-                  onChange={e => setAutForm({ ...autForm, residente_id: e.target.value })}
-                  className={`${inputCls} cursor-pointer`}>
-                  <option value="">Seleccionar residente...</option>
-                  {residentes?.results?.map(r => (
-                    <option key={r.id} value={r.id}>{r.nombre} {r.apellido} — C.I.: {r.dni}</option>
-                  ))}
-                </select>
-                <select value={autForm.relacion}
+              <div className="space-y-3">
+                {/* Buscador de residente */}
+                <div className="relative">
+                  <div className="relative">
+                    <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-warm-400" />
+                    <input
+                      type="text"
+                      placeholder="Buscar residente por nombre o C.I..."
+                      value={busquedaResidente}
+                      onChange={(e) => setBusquedaResidente(e.target.value)}
+                      onFocus={() => setMostrarLista(true)}
+                      className={`${inputCls} pl-10`}
+                    />
+                  </div>
+                  {/* Lista desplegable */}
+                  {mostrarLista && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-cream-400 rounded-xl shadow-xl max-h-64 overflow-auto py-1">
+                      {residentesFiltrados.length > 0 ? (
+                        residentesFiltrados.map(r => (
+                          <button
+                            key={r.id}
+                            onClick={() => {
+                              setAutForm({ ...autForm, residente_id: r.id });
+                              setBusquedaResidente(`${r.nombre} ${r.apellido} — C.I.: {r.dni}`);
+                              setMostrarLista(false);
+                            }}
+                            className="w-full text-left px-4 py-2.5 hover:bg-warm-50 text-sm flex justify-between items-center"
+                          >
+                            <span>{r.nombre} {r.apellido}</span>
+                            <span className="text-warm-400 text-xs">C.I.: {r.dni}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-6 text-center text-warm-400 text-sm">
+                          No se encontró ningún residente
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {/* Mostrar residente seleccionado */}
+                {autForm.residente_id && (
+                  <div className="bg-warm-50 border border-cream-400 rounded-xl p-3 text-sm">
+                    <p className="font-medium text-warm-800">
+                      {residentes?.find(r => r.id === autForm.residente_id)?.nombre}{' '}
+                      {residentes?.find(r => r.id === autForm.residente_id)?.apellido}
+                    </p>
+                    <p className="text-warm-400 text-xs">
+                      C.I.: {residentes?.find(r => r.id === autForm.residente_id)?.dni}
+                    </p>
+                  </div>
+                )}
+                {/* Select de relación */}
+                <select 
+                  value={autForm.relacion}
                   onChange={e => setAutForm({ ...autForm, relacion: e.target.value })}
-                  className={`${inputCls} cursor-pointer`}>
+                  className={`${inputCls} cursor-pointer`}
+                >
                   <option value="familiar">Familiar</option>
                   <option value="amigo">Amigo</option>
                   <option value="representante_legal">Representante legal</option>
@@ -527,6 +583,8 @@ export default function Visitas() {
               <option value="">Todos los residentes</option>
               {residentes?.results?.map(r => (
                 <option key={r.id} value={r.id}>{r.nombre} {r.apellido}</option>
+              )) || residentes?.map(r => (
+                <option key={r.id} value={r.id}>{r.nombre} {r.apellido}</option>
               ))}
             </select>
             <input type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)}
@@ -542,7 +600,7 @@ export default function Visitas() {
               <h3 className="font-bold text-warm-700 flex items-center gap-2"><ClipboardList size={16} className="text-warm-500" /> {historialFiltrado?.length ?? 0} visitas</h3>
             </div>
             {cargandoHistorial ? <Spinner /> : (
-              <>
+              <div className="overflow-x-auto">
                 {/* TABLA escritorio */}
                 <table className="vis-hist-tabla w-full">
                   <thead>
@@ -554,96 +612,43 @@ export default function Visitas() {
                   </thead>
                   <tbody>
                     {historialFiltrado?.length === 0 ? (
-                      <tr><td colSpan={7} className="text-center py-12 text-gray-400">Sin visitas para los filtros seleccionados</td></tr>
+                      <tr>
+                        <td colSpan={7} className="text-center py-12 text-gray-400">Sin visitas para los filtros seleccionados</td>
+                      </tr>
                     ) : (
-                      historialFiltrado?.map((v, i) => {
-                        const dur = v.fecha_hora_salida
-                          ? Math.floor((new Date(v.fecha_hora_salida) - new Date(v.fecha_hora_entrada)) / 60000) : null
-                        return (
-                          <tr key={v.id} className={`hover:bg-warm-50 transition ${i < historialFiltrado.length - 1 ? 'border-b border-warm-50' : ''}`}>
-                            <td className="px-6 py-4 text-sm font-semibold text-warm-800">{v.visitante_nombre}</td>
-                            <td className="px-6 py-4 text-sm text-warm-600">{v.residente_nombre}</td>
-                            <td className="px-6 py-4 text-sm text-warm-600">{new Date(v.fecha_hora_entrada).toLocaleString('es-BO')}</td>
-                            <td className="px-6 py-4 text-sm text-warm-600">
-                              {v.fecha_hora_salida ? new Date(v.fecha_hora_salida).toLocaleTimeString('es-BO')
-                                : <span className="text-health-600 font-semibold">En curso</span>}
-                            </td>
-                            <td className="px-6 py-4 text-sm text-warm-400">
-                              {dur !== null ? (dur < 60 ? `${dur} min` : `${Math.floor(dur/60)}h ${dur%60}min`) : '—'}
-                            </td>
-                            <td className="px-6 py-4 text-sm text-warm-400">{v.observaciones || '—'}</td>
-                            <td className="px-6 py-4">
-                              <span className={`text-xs px-2.5 py-1 rounded-full font-semibold inline-flex items-center gap-1
-                                ${v.estado === 'en_curso' ? 'bg-health-100 text-health-600' :
-                                  v.estado === 'finalizada' ? 'bg-gray-100 text-gray-500' : 'bg-alert-100 text-alert-600'}`}>
-                                {v.estado === 'en_curso' ? <><Circle size={9} className="fill-health-600" /> En curso</> : v.estado === 'finalizada' ? <><CheckCircle2 size={11} /> Finalizada</> : <><Clock size={11} /> Pendiente</>}
-                              </span>
-                            </td>
-                          </tr>
-                        )
-                      })
+                      historialFiltrado?.map((v, i) => (
+                        <tr key={v.id} className={`hover:bg-warm-50 text-sm text-warm-800 ${i < historialFiltrado.length - 1 ? 'border-b border-warm-50' : ''}`}>
+                          <td className="px-6 py-4 font-semibold">{v.visitante_nombre}</td>
+                          <td className="px-6 py-4 text-warm-600">{v.residente_nombre}</td>
+                          <td className="px-6 py-4 text-xs text-warm-500">
+                            {v.fecha_hora_entrada ? new Date(v.fecha_hora_entrada).toLocaleString('es-BO') : '—'}
+                          </td>
+                          <td className="px-6 py-4 text-xs text-warm-500">
+                            {v.fecha_hora_salida ? new Date(v.fecha_hora_salida).toLocaleString('es-BO') : '—'}
+                          </td>
+                          <td className="px-6 py-4 text-xs font-medium text-warm-600">
+                            {v.fecha_hora_salida && v.fecha_hora_entrada
+                              ? tiempoTranscurrido(v.fecha_hora_entrada) 
+                              : 'En curso'}
+                          </td>
+                          <td className="px-6 py-4 text-xs text-warm-400 max-w-xs truncate">{v.observaciones || '—'}</td>
+                          <td className="px-6 py-4">
+                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                              v.estado === 'en_curso' ? 'bg-health-100 text-health-600' : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {v.estado === 'en_curso' ? 'En curso' : 'Finalizado'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
-
-                {/* CARDS móvil */}
-                <div className="vis-hist-cards hidden flex-col gap-3 p-4">
-                  {historialFiltrado?.length === 0 ? (
-                    <p className="text-center py-8 text-gray-400 text-sm">Sin visitas para los filtros seleccionados</p>
-                  ) : (
-                    historialFiltrado?.map(v => {
-                      const dur = v.fecha_hora_salida
-                        ? Math.floor((new Date(v.fecha_hora_salida) - new Date(v.fecha_hora_entrada)) / 60000) : null
-                      return (
-                        <div key={v.id} className="bg-warm-50 rounded-xl p-3 border border-cream-400/60">
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <p className="font-bold text-warm-800 text-sm">{v.visitante_nombre}</p>
-                            <span className={`text-xs px-2.5 py-1 rounded-full font-semibold inline-flex items-center gap-1
-                              ${v.estado === 'en_curso' ? 'bg-health-100 text-health-600' :
-                                v.estado === 'finalizada' ? 'bg-gray-100 text-gray-500' : 'bg-alert-100 text-alert-600'}`}>
-                              {v.estado === 'en_curso' ? <><Circle size={9} className="fill-health-600" /> En curso</> : v.estado === 'finalizada' ? <><CheckCircle2 size={11} /> Finalizada</> : <><Clock size={11} /> Pendiente</>}
-                            </span>
-                          </div>
-                          <p className="text-xs text-warm-500">visita a {v.residente_nombre}</p>
-                          <div className="grid grid-cols-2 gap-2 text-xs text-warm-600 mt-2">
-                            <div><span className="text-warm-400">Entrada:</span> {new Date(v.fecha_hora_entrada).toLocaleString('es-BO')}</div>
-                            <div><span className="text-warm-400">Duración:</span> {dur !== null ? (dur < 60 ? `${dur} min` : `${Math.floor(dur/60)}h ${dur%60}min`) : '—'}</div>
-                          </div>
-                          {v.observaciones && <p className="text-xs text-warm-400 mt-2">{v.observaciones}</p>}
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
-              </>
+              </div>
             )}
           </div>
         </div>
       )}
-
-      {/* Modales */}
-      {modalNuevaVisita && (
-        <ModalNuevaVisita onClose={() => setModalNuevaVisita(false)}
-          onGuardado={() => {
-            queryClient.invalidateQueries(['visitas-activas'])
-            queryClient.invalidateQueries(['historial-visitas'])
-          }} />
-      )}
-      {modalNuevoVisitante && (
-        <ModalNuevoVisitante onClose={() => setModalNuevoVisitante(false)}
-          onGuardado={() => queryClient.invalidateQueries(['visitantes'])} />
-      )}
-
-      <style>{`
-        @keyframes fadeUp   { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes fadeIn   { from{opacity:0} to{opacity:1} }
-        @keyframes modalPop { from{opacity:0;transform:translateY(12px) scale(.96)} to{opacity:1;transform:translateY(0) scale(1)} }
-        @media (max-width: 767px) {
-          .vis-tabla, .vis-hist-tabla { display: none !important; }
-          .vis-cards { display: flex !important; }
-          .vis-hist-cards { display: flex !important; }
-        }
-      `}</style>
     </div>
   )
 }
