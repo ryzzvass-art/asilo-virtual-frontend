@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Bell, Pill, Clock, Wifi, WifiOff, CheckCircle2, X } from 'lucide-react'
-import { useTomasPendientes } from '../hooks/useTomasPendientes'
+import { useTomasPendientes } from '../hooks/useTomasPendientes.js'
 
 const P = {
   warm800: '#7C3D28', warm600: '#A0522D', warm500: '#C87941',
