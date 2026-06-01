@@ -340,29 +340,31 @@ export default function Login() {
       padding: '24px',
     }}>
 
-      <div style={{
-        width: '100%', maxWidth: '940px',
-        borderRadius: '28px',
-        overflow: 'hidden',
-        display: 'flex',
-        boxShadow: '0 32px 96px rgba(80,40,10,0.22), 0 4px 20px rgba(80,40,10,0.12)',
-        minHeight: '580px',
-      }}>
+      {/* Agregamos la clase "login-card" para manejar el flujo en móviles */}
+<div className="login-card" style={{
+  width: '100%', maxWidth: '940px',
+  borderRadius: '28px',
+  overflow: 'hidden',
+  display: 'flex',
+  boxShadow: '0 32px 96px rgba(80,40,10,0.22), 0 4px 20px rgba(80,40,10,0.12)',
+  minHeight: '580px',
+}}>
 
         {/* Panel izquierdo — gif + animación */}
         <div className="login-scene-panel" style={{ flex: 1, minWidth: 0, display: 'flex' }}>
           <ScenePanel />
         </div>
 
-        {/* Panel derecho — formulario */}
-        <div style={{
-          width: '400px', flexShrink: 0,
-          background: 'white',
-          display: 'flex', flexDirection: 'column',
-          justifyContent: 'center',
-          padding: '48px 40px',
-        }}>
-
+        {/* Panel derecho — formulario responsivo */}
+<div className="login-form-panel" style={{
+  flex: 1,
+  background: 'white',
+  display: 'flex', flexDirection: 'column',
+  justifyContent: 'center',
+  // Reducimos sutilmente el padding para que respire mejor en pantallas chicas
+  padding: '40px 24px', 
+  boxSizing: 'border-box',
+}}>
           {/* Header */}
           <div style={{ marginBottom: '32px' }}>
             <div style={{
