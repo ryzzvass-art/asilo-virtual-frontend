@@ -174,6 +174,7 @@ export default function Residentes() {
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['residentes', filtros, pagina],
+    page_size: 100,
     queryFn: () => residentesService.listar({ ...filtros, page: pagina }),
     keepPreviousData: true,
   })
