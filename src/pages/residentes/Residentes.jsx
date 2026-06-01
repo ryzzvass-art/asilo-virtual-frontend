@@ -188,13 +188,19 @@ export default function Residentes() {
   /* Detección defensiva del formato de paginación.
      - DRF estándar: { count, next, previous, results }
      - Sin paginar:  { results, total } o array directo */
-  const lista       = data?.results ?? (Array.isArray(data) ? data : [])
-  const totalItems  = data?.count ?? data?.total ?? lista.length
-  const tienePaginacion = data?.count != null && (data?.next != null || data?.previous != null || totalItems > lista.length)
-  const porPagina   = lista.length > 0 && tienePaginacion ? lista.length : (totalItems || 1)
-  const totalPaginas = tienePaginacion ? Math.max(1, Math.ceil(totalItems / (porPagina || 1))) : 1
-  const desde = totalItems === 0 ? 0 : (pagina - 1) * (porPagina || lista.length) + 1
-  const hasta = Math.min(pagina * (porPagina || lista.length), totalItems)
+const lista           = data?.results ?? (Array.isArray(data) ? data : []);
+const totalItems      = data?.count ?? data?.total ?? lista.length;
+
+// 1. Usar el tamaño de página real que manda el backend, o 20 por defecto
+const porPagina       = data?.page_size ?? 20; 
+
+// 2. Si hay más items que el tamaño fijo por página, entonces hay paginación
+const tienePaginacion = totalItems > porPagina;
+
+// 3. El resto de la matemática ahora funcionará matemática y lógicamente perfecta
+const totalPaginas    = tienePaginacion ? Math.max(1, Math.ceil(totalItems / porPagina)) : 1;
+const desde           = totalItems === 0 ? 0 : (pagina - 1) * porPagina + 1;
+const hasta           = Math.min(pagina * porPagina, totalItems);
 
   const fmtFecha = f => new Date(f).toLocaleDateString('es-BO')
 
