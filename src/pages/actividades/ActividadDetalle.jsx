@@ -5,13 +5,28 @@ import { actividadesService } from '../../services/actividadesService'
 import { residentesService } from '../../services/residentesService'
 import useAuthStore from '../../store/authStore'
 
+const TIPO_LABEL = {
+  taller: 'Taller', fisioterapia: 'Fisioterapia', cumpleanos: 'Cumpleaños',
+  recreativa: 'Recreativa', deportivo: 'Deportivo', otro: 'Otro',
+}
+
+function etiquetaTipo(a) {
+  if (!a) return '—'
+  if (a.tipo === 'otro' && a.tipo_otro) return a.tipo_otro
+  return TIPO_LABEL[a.tipo] || a.tipo
+}
+
 export default function ActividadDetalle() {
   const { id } = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { usuario } = useAuthStore()
   const esAdmin = usuario?.rol === 'administrador'
+  const esCuidador = usuario?.rol === 'cuidador'
+  // Admin y cuidador pueden asignar; solo admin puede quitar.
+  const puedeAsignar = esAdmin || esCuidador
   const [residenteId, setResidenteId] = useState('')
+  const [errorAsignar, setErrorAsignar] = useState('')
 
   const { data: actividad, isLoading } = useQuery({
     queryKey: ['actividad', id],
@@ -28,7 +43,11 @@ export default function ActividadDetalle() {
     onSuccess: () => {
       queryClient.invalidateQueries(['actividad', id])
       setResidenteId('')
+      setErrorAsignar('')
     },
+    // Corrección 1: mostrar mensaje "ya asignado" (o el error que devuelva el backend)
+    onError: (err) =>
+      setErrorAsignar(err.response?.data?.error || 'No se pudo asignar el residente.'),
   })
 
   const mutacionDesasignar = useMutation({
@@ -42,6 +61,8 @@ export default function ActividadDetalle() {
     </div>
   )
 
+  const editable = actividad?.estado === 'programada'
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -50,7 +71,7 @@ export default function ActividadDetalle() {
           className="text-gray-400 hover:text-gray-600 text-2xl">←</button>
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-gray-800">{actividad?.nombre}</h1>
-          <p className="text-gray-400 text-sm">{actividad?.tipo} — {actividad?.responsable}</p>
+          <p className="text-gray-400 text-sm">{etiquetaTipo(actividad)} — {actividad?.responsable}</p>
         </div>
         <span className={`text-sm font-medium px-3 py-1 rounded-full
           ${actividad?.estado === 'programada' ? 'bg-blue-100 text-blue-700' :
@@ -68,11 +89,14 @@ export default function ActividadDetalle() {
           <div className="space-y-3">
             {[
               { label: 'Nombre',      valor: actividad?.nombre },
-              { label: 'Tipo',        valor: actividad?.tipo },
+              { label: 'Tipo',        valor: etiquetaTipo(actividad) },
               { label: 'Responsable', valor: actividad?.responsable },
               { label: 'Fecha y hora',valor: actividad?.fecha_hora ?
                 new Date(actividad.fecha_hora).toLocaleString('es-BO') : '—' },
               { label: 'Estado',      valor: actividad?.estado },
+              ...(actividad?.observaciones
+                ? [{ label: actividad.estado === 'cancelada' ? 'Motivo de cancelación' : 'Observaciones', valor: actividad.observaciones }]
+                : []),
             ].map(({ label, valor }) => (
               <div key={label}>
                 <p className="text-xs text-gray-400 uppercase font-medium">{label}</p>
@@ -88,28 +112,34 @@ export default function ActividadDetalle() {
             👥 Participantes ({actividad?.participantes?.length ?? 0})
           </h3>
 
-          {/* Asignar residente */}
-          {esAdmin && actividad?.estado === 'programada' && (
-            <div className="flex gap-2 mb-4">
-              <select
-                value={residenteId}
-                onChange={e => setResidenteId(e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Seleccionar residente...</option>
-                {residentes?.results?.map(r => (
-                  <option key={r.id} value={r.id}>
-                    {r.nombre} {r.apellido}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => residenteId && mutacionAsignar.mutate(residenteId)}
-                disabled={!residenteId || mutacionAsignar.isPending}
-                className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm disabled:opacity-50"
-              >
-                Asignar
-              </button>
+          {/* Asignar residente — admin y cuidador, solo si está programada */}
+          {puedeAsignar && editable && (
+            <div className="mb-4">
+              <div className="flex gap-2">
+                <select
+                  value={residenteId}
+                  onChange={e => { setResidenteId(e.target.value); setErrorAsignar('') }}
+                  className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Seleccionar residente...</option>
+                  {residentes?.results?.map(r => (
+                    <option key={r.id} value={r.id}>
+                      {r.nombre} {r.apellido}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => residenteId && mutacionAsignar.mutate(residenteId)}
+                  disabled={!residenteId || mutacionAsignar.isPending}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm disabled:opacity-50"
+                >
+                  Asignar
+                </button>
+              </div>
+              {/* Mensaje de error (ej: "ya está asignado") */}
+              {errorAsignar && (
+                <p className="text-red-600 text-sm bg-red-50 px-3 py-2 rounded-xl mt-2">{errorAsignar}</p>
+              )}
             </div>
           )}
 
@@ -121,7 +151,8 @@ export default function ActividadDetalle() {
               {actividad?.participantes?.map(p => (
                 <li key={p.residente} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2">
                   <span className="text-sm text-gray-700">{p.residente_nombre}</span>
-                  {esAdmin && actividad?.estado === 'programada' && (
+                  {/* Quitar — SOLO admin */}
+                  {esAdmin && editable && (
                     <button
                       onClick={() => mutacionDesasignar.mutate(p.residente)}
                       className="text-xs text-red-500 hover:text-red-700"

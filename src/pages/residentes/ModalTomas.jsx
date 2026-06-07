@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { medicamentosService } from '../../services/medicamentosService'
+import { dispararRefrescoTomas } from '../../hooks/useTomasPendientes'
 
 export default function ModalTomas({ prescripcion, residenteId, onClose }) {
   const queryClient = useQueryClient()
@@ -13,6 +14,7 @@ export default function ModalTomas({ prescripcion, residenteId, onClose }) {
   })
   const [error, setError] = useState('')
   const [exito, setExito] = useState(false)
+  const [esErrorStock, setEsErrorStock] = useState(false)
 
   const { data: historial, isLoading } = useQuery({
     queryKey: ['tomas', residenteId],
@@ -24,18 +26,32 @@ export default function ModalTomas({ prescripcion, residenteId, onClose }) {
     mutationFn: (data) => medicamentosService.registrarToma(data),
     onSuccess: () => {
       queryClient.invalidateQueries(['tomas', residenteId])
+      queryClient.invalidateQueries(['stock'])
+      queryClient.invalidateQueries(['alertas-stock'])
+      queryClient.invalidateQueries(['movimientos'])
+      // Refresco inmediato de la campana de notificaciones: la toma recién
+      // registrada debe desaparecer al instante de "Tomas próximas".
+      dispararRefrescoTomas()
       setExito(true)
       setForm({ administrado: 'true', fecha_hora_programada: '', fecha_hora_real: '', observacion: '' })
       setTimeout(() => setExito(false), 2000)
     },
-    onError: (err) => setError(
-      err.response?.data?.detalle?.error ||
-      JSON.stringify(err.response?.data?.detalle || 'Error al registrar la toma')
-    ),
+    onError: (err) => {
+      const data = err.response?.data
+      const mensaje =
+        data?.error ||
+        data?.detail ||
+        (typeof data === 'string' ? data : null) ||
+        'Error al registrar la toma'
+      
+      setEsErrorStock(mensaje.toLowerCase().includes('insuficiente'))
+      setError(mensaje)
+    },
   })
 
   const guardar = () => {
     setError('')
+    setEsErrorStock(false)
     const administrado = form.administrado === 'true'
     if (!form.fecha_hora_programada) {
       setError('La fecha y hora programada es obligatoria')
@@ -89,6 +105,30 @@ export default function ModalTomas({ prescripcion, residenteId, onClose }) {
                   <p className="text-sm font-medium text-blue-700">{prescripcion.horarios.join(' · ')}</p>
                 </div>
               )}
+
+              {/* === CAMPO MODIFICADO === */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Toma programada</label>
+                {prescripcion.horarios?.length > 0 ? (
+                  <select value={form.fecha_hora_programada}
+                    onChange={e => setForm({ ...form, fecha_hora_programada: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">Selecciona un horario…</option>
+                    {prescripcion.horarios.map(h => {
+                      const hoy = new Date().toISOString().split('T')[0]
+                      const valor = `${hoy}T${h.length === 5 ? h : h.slice(0, 5)}`
+                      return <option key={h} value={valor}>{h}</option>
+                    })}
+                  </select>
+                ) : (
+                  <input type="datetime-local" value={form.fecha_hora_programada}
+                    onChange={e => setForm({ ...form, fecha_hora_programada: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                )}
+                <p className="text-xs text-gray-400 mt-1">Horarios definidos en la prescripción para hoy</p>
+              </div>
+              {/* ======================= */}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">¿Se administró?</label>
                 <select value={form.administrado}
@@ -98,12 +138,7 @@ export default function ModalTomas({ prescripcion, residenteId, onClose }) {
                   <option value="false">❌ No, omitido</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Fecha y hora programada</label>
-                <input type="datetime-local" value={form.fecha_hora_programada}
-                  onChange={e => setForm({ ...form, fecha_hora_programada: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
+
               {form.administrado === 'true' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -115,6 +150,7 @@ export default function ModalTomas({ prescripcion, residenteId, onClose }) {
                   <p className="text-xs text-gray-400 mt-1">Si lo dejas vacío, se usa la hora programada</p>
                 </div>
               )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Observación {form.administrado === 'false' && <span className="text-red-500">*</span>}
@@ -124,8 +160,26 @@ export default function ModalTomas({ prescripcion, residenteId, onClose }) {
                   onChange={e => setForm({ ...form, observacion: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
-              {error && <p className="text-red-600 text-sm bg-red-50 p-3 rounded-xl">{error}</p>}
+
+              {error && (
+                esErrorStock ? (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-3">
+                    <span className="text-xl shrink-0">⚠️</span>
+                    <div>
+                      <p className="text-sm font-semibold text-red-700">No hay stock suficiente</p>
+                      <p className="text-xs text-red-600 mt-0.5">{error}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        La toma no se registró. Agrega stock del medicamento antes de continuar.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-red-600 text-sm bg-red-50 p-3 rounded-xl">{error}</p>
+                )
+              )}
+
               {exito && <p className="text-green-600 text-sm bg-green-50 p-3 rounded-xl">✓ Toma registrada correctamente</p>}
+
               <button onClick={guardar} disabled={mutation.isPending}
                 className="w-full px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium disabled:opacity-50">
                 {mutation.isPending ? 'Guardando...' : 'Registrar toma'}

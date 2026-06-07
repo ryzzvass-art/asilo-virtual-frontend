@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   LogIn, LogOut, X, Search, UserPlus, Users, ArrowRight, ArrowLeft,
   Check, CheckCircle2, AlertTriangle, Clock, CalendarHeart, House,
-  ClipboardList, Circle, Loader2
+  ClipboardList, Circle, Loader2, Pencil, ShieldCheck, ShieldOff
 } from 'lucide-react'
 import { visitantesService } from '../../services/visitantesService'
 import { residentesService } from '../../services/residentesService'
@@ -13,6 +13,59 @@ import useAuthStore from '../../store/authStore'
 const inputCls = "w-full px-3 py-2 border border-cream-400 rounded-xl text-sm bg-warm-50 text-warm-800 focus:outline-none focus:ring-2 focus:ring-warm-400 focus:border-warm-500 transition"
 const btnPrimario = "px-4 py-2 bg-gradient-to-br from-warm-600 to-warm-500 text-white rounded-xl text-sm font-semibold shadow-sm hover:shadow-md disabled:opacity-50 transition flex items-center justify-center gap-2"
 const btnSecundario = "px-4 py-2 border border-cream-400 rounded-xl text-warm-600 hover:bg-warm-50 text-sm font-semibold transition"
+
+// Extrae un mensaje de error legible desde la respuesta del backend.
+// Maneja: { error }, { detalle }, { detail }, non_field_errors,
+// errores por campo del serializer, y fallos de red.
+function extraerError(err, fallback = 'Ocurrió un error inesperado.') {
+  const data = err?.response?.data
+  if (!data) {
+    if (err?.message) return `No se pudo conectar con el servidor (${err.message}).`
+    return fallback
+  }
+  if (typeof data === 'string') return data
+  if (typeof data.error === 'string')   return data.error
+  if (typeof data.detalle === 'string') return data.detalle
+  if (typeof data.detail === 'string')  return data.detail
+  if (Array.isArray(data.non_field_errors) && data.non_field_errors.length) {
+    return data.non_field_errors.join(' ')
+  }
+  const partes = []
+  for (const valor of Object.values(data)) {
+    partes.push(Array.isArray(valor) ? valor.join(' ') : String(valor))
+  }
+  return partes.length ? partes.join(' ') : fallback
+}
+
+// Paginador con numeración — copia del patrón usado en Nutrición.
+function PaginadorSimple({ pagina, total, porPagina, onChange }) {
+  const totalPaginas = Math.ceil(total / porPagina)
+  if (totalPaginas <= 1) return null
+  return (
+    <div className="flex items-center justify-between px-4 py-3 border-t border-cream-400 bg-warm-50/50 flex-wrap gap-2">
+      <p className="text-xs text-warm-400">
+        Mostrando {Math.min((pagina - 1) * porPagina + 1, total)}–{Math.min(pagina * porPagina, total)} de {total}
+      </p>
+      <div className="flex gap-1 flex-wrap">
+        <button onClick={() => onChange(pagina - 1)} disabled={pagina === 1}
+          className="px-3 py-1.5 text-xs rounded-lg border border-cream-400 text-warm-600 hover:bg-warm-100 disabled:opacity-40 disabled:cursor-not-allowed transition">
+          ← Anterior
+        </button>
+        {Array.from({ length: totalPaginas }, (_, i) => i + 1).map(n => (
+          <button key={n} onClick={() => onChange(n)}
+            className={`px-3 py-1.5 text-xs rounded-lg border transition
+              ${n === pagina ? 'bg-warm-600 text-white border-warm-600' : 'border-cream-400 text-warm-600 hover:bg-warm-100'}`}>
+            {n}
+          </button>
+        ))}
+        <button onClick={() => onChange(pagina + 1)} disabled={pagina === totalPaginas}
+          className="px-3 py-1.5 text-xs rounded-lg border border-cream-400 text-warm-600 hover:bg-warm-100 disabled:opacity-40 disabled:cursor-not-allowed transition">
+          Siguiente →
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function tiempoTranscurrido(fechaEntrada) {
   if (!fechaEntrada) return '—'
@@ -41,14 +94,7 @@ function ModalNuevaVisita({ onClose, onGuardado }) {
 
   const { data: visitantes, isFetching: buscando } = useQuery({
     queryKey: ['buscar-visitante', busqueda],
-    queryFn: async () => {
-      const [porNombre, porDni] = await Promise.all([
-        visitantesService.listar({ nombre: busqueda }),
-        visitantesService.listar({ dni: busqueda }),
-      ])
-      const todos = [...(porNombre || []), ...(porDni || [])]
-      return todos.filter((v, i, arr) => arr.findIndex(x => x.id === v.id) === i)
-    },
+    queryFn: () => visitantesService.buscar(busqueda),
     enabled: busqueda.length >= 2,
   })
 
@@ -61,9 +107,7 @@ function ModalNuevaVisita({ onClose, onGuardado }) {
   const mutation = useMutation({
     mutationFn: (data) => visitantesService.registrarIngreso(data),
     onSuccess: () => { onGuardado(); onClose() },
-    onError: (err) => setError(
-      err.response?.data?.detalle?.error || err.response?.data?.error || 'Error al registrar el ingreso.'
-    ),
+    onError: (err) => setError(extraerError(err, 'No se pudo registrar el ingreso.')),
   })
 
   const autorizacionesActivas = autorizaciones?.filter(a => a.estado === 'activo') || []
@@ -239,7 +283,7 @@ function ModalNuevoVisitante({ onClose, onGuardado }) {
       return visitante
     },
     onSuccess: () => { onGuardado(); onClose() },
-    onError: (err) => setError(JSON.stringify(err.response?.data?.detalle || 'Error al crear visitante')),
+    onError: (err) => setError(extraerError(err, 'No se pudo crear el visitante.')),
   })
 
   return (
@@ -343,6 +387,223 @@ function ModalNuevoVisitante({ onClose, onGuardado }) {
 // ════════════════════════════════════════════════════════════
 // PÁGINA PRINCIPAL
 // ════════════════════════════════════════════════════════════
+// ── Modal: editar visitante ───────────────────────────────
+function ModalEditarVisitante({ visitante, onClose, onGuardado }) {
+  const [form, setForm] = useState({
+    nombre:   visitante.nombre   || '',
+    dni:      visitante.dni      || '',
+    telefono: visitante.telefono || '',
+  })
+  const [error, setError] = useState('')
+
+  const mutacion = useMutation({
+    mutationFn: () => visitantesService.actualizar(visitante.id, form),
+    onSuccess: () => { onGuardado(); onClose() },
+    onError: (err) => setError(extraerError(err, 'No se pudo actualizar el visitante.')),
+  })
+
+  const submit = (e) => {
+    e.preventDefault()
+    setError('')
+    if (!form.nombre.trim() || !form.dni.trim()) {
+      setError('Nombre y C.I. son obligatorios.')
+      return
+    }
+    mutacion.mutate()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-warm-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md" onClick={(e) => e.stopPropagation()} style={{ animation: 'modalPop 0.25s ease' }}>
+        <div className="p-5 border-b border-cream-300 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-warm-100 flex items-center justify-center">
+            <Pencil size={16} className="text-warm-600" />
+          </div>
+          <h2 className="text-base font-bold text-warm-800 flex-1">Editar visitante</h2>
+          <button onClick={onClose} className="text-warm-400 hover:text-warm-600 transition"><X size={20} /></button>
+        </div>
+        <form onSubmit={submit} className="p-5 space-y-3">
+          <div>
+            <label className="text-xs font-bold text-warm-700 mb-1 block">Nombre completo *</label>
+            <input className={inputCls} value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-warm-700 mb-1 block">C.I. *</label>
+            <input className={inputCls} value={form.dni} onChange={e => setForm({ ...form, dni: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-warm-700 mb-1 block">Teléfono</label>
+            <input className={inputCls} value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} />
+          </div>
+          {error && (
+            <div className="text-sm text-danger-700 bg-danger-50 border border-danger-200 rounded-xl px-3 py-2 flex items-start gap-2">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}
+            </div>
+          )}
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose} className={`flex-1 ${btnSecundario}`}>Cancelar</button>
+            <button type="submit" disabled={mutacion.isPending} className={`flex-1 ${btnPrimario}`}>
+              {mutacion.isPending ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+              Guardar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ── Modal: gestionar autorizaciones del visitante ─────────
+function ModalGestionarAutorizaciones({ visitante, esAdmin, onClose }) {
+  const queryClient = useQueryClient()
+  const [residenteSel, setResidenteSel] = useState('')
+  const [relacion, setRelacion] = useState('familiar')
+  const [error, setError] = useState('')
+
+  const { data: autorizaciones, isLoading } = useQuery({
+    queryKey: ['visitante-autorizaciones', visitante.id],
+    queryFn: () => visitantesService.listarAutorizaciones(visitante.id),
+  })
+
+  const { data: residentesData } = useQuery({
+    queryKey: ['residentes-activos-modal-auth'],
+    queryFn: () => residentesService.listar({ estado: 'activo', page_size: 500 }),
+    enabled: esAdmin,
+  })
+  const residentes = residentesData?.results || []
+
+  const invalidar = () => {
+    queryClient.invalidateQueries(['visitante-autorizaciones', visitante.id])
+    queryClient.invalidateQueries(['lista-visitantes'])
+  }
+
+  const autorizar = useMutation({
+    mutationFn: () => visitantesService.autorizar(visitante.id, residenteSel, { relacion }),
+    onSuccess: () => { setResidenteSel(''); setError(''); invalidar() },
+    onError: (err) => setError(extraerError(err, 'No se pudo autorizar.')),
+  })
+
+  const suspender = useMutation({
+    mutationFn: (residenteId) => visitantesService.suspender(visitante.id, residenteId),
+    onSuccess: invalidar,
+    onError: (err) => setError(extraerError(err, 'No se pudo suspender.')),
+  })
+
+  // El endpoint POST /autorizar/ reactiva automáticamente las autorizaciones suspendidas
+  const reactivar = useMutation({
+    mutationFn: ({ residenteId, relacion }) =>
+      visitantesService.autorizar(visitante.id, residenteId, { relacion }),
+    onSuccess: invalidar,
+    onError: (err) => setError(extraerError(err, 'No se pudo reactivar.')),
+  })
+
+  // Residentes que aún no están autorizados (para el dropdown)
+  const idsAutorizados = new Set((autorizaciones || []).map(a => a.residente))
+  const residentesDisponibles = residentes.filter(r => !idsAutorizados.has(r.id))
+
+  return (
+    <div className="fixed inset-0 bg-warm-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()} style={{ animation: 'modalPop 0.25s ease' }}>
+        <div className="p-5 border-b border-cream-300 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-warm-100 flex items-center justify-center">
+            <ShieldCheck size={16} className="text-warm-600" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-base font-bold text-warm-800">Autorizaciones</h2>
+            <p className="text-xs text-warm-500">{visitante.nombre} — C.I. {visitante.dni}</p>
+          </div>
+          <button onClick={onClose} className="text-warm-400 hover:text-warm-600 transition"><X size={20} /></button>
+        </div>
+
+        <div className="p-5 space-y-4 overflow-y-auto">
+          {/* Lista de autorizaciones existentes */}
+          {isLoading ? (
+            <div className="flex justify-center py-6">
+              <Loader2 size={24} className="animate-spin text-warm-400" />
+            </div>
+          ) : !autorizaciones || autorizaciones.length === 0 ? (
+            <div className="text-center py-8 bg-warm-50 rounded-xl border border-dashed border-cream-400">
+              <Users size={32} className="mx-auto text-cream-400 mb-2" />
+              <p className="text-warm-700 font-semibold text-sm">Sin autorizaciones</p>
+              <p className="text-warm-400 text-xs mt-0.5">Este visitante aún no está autorizado para ningún residente.</p>
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {autorizaciones.map(a => (
+                <li key={a.id} className="flex items-center gap-3 p-3 bg-warm-50 border border-cream-300 rounded-xl">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-warm-800 truncate">{a.residente_nombre}</div>
+                    <div className="text-xs text-warm-500">
+                      {RELACION_LABEL[a.relacion] || a.relacion}
+                      {' · '}
+                      <span className={a.estado === 'activo' ? 'text-health-600 font-semibold' : 'text-danger-600 font-semibold'}>
+                        {a.estado === 'activo' ? 'Activa' : 'Suspendida'}
+                      </span>
+                    </div>
+                  </div>
+                  {esAdmin && a.estado === 'activo' && (
+                    <button
+                      onClick={() => suspender.mutate(a.residente)}
+                      disabled={suspender.isPending}
+                      className="px-2.5 py-1.5 text-xs font-bold text-danger-700 border border-danger-200 bg-danger-50 hover:bg-danger-100 rounded-lg flex items-center gap-1.5 transition disabled:opacity-50">
+                      <ShieldOff size={12} /> Suspender
+                    </button>
+                  )}
+                  {esAdmin && a.estado === 'suspendido' && (
+                    <button
+                      onClick={() => reactivar.mutate({ residenteId: a.residente, relacion: a.relacion })}
+                      disabled={reactivar.isPending}
+                      className="px-2.5 py-1.5 text-xs font-bold text-health-700 border border-health-200 bg-health-50 hover:bg-health-100 rounded-lg flex items-center gap-1.5 transition disabled:opacity-50">
+                      <ShieldCheck size={12} /> Reactivar
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* Formulario para autorizar a un nuevo residente (solo admin) */}
+          {esAdmin && (
+            <div className="pt-4 border-t border-cream-300">
+              <div className="text-xs font-bold text-warm-700 mb-2">Autorizar para otro residente</div>
+              {residentesDisponibles.length === 0 ? (
+                <p className="text-xs text-warm-500 italic">Ya está autorizado para todos los residentes activos.</p>
+              ) : (
+                <div className="space-y-2">
+                  <select className={inputCls} value={residenteSel} onChange={e => setResidenteSel(e.target.value)}>
+                    <option value="">Selecciona un residente…</option>
+                    {residentesDisponibles.map(r => (
+                      <option key={r.id} value={r.id}>{r.nombre} {r.apellido}</option>
+                    ))}
+                  </select>
+                  <select className={inputCls} value={relacion} onChange={e => setRelacion(e.target.value)}>
+                    {Object.entries(RELACION_LABEL).map(([val, label]) => (
+                      <option key={val} value={val}>{label}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => residenteSel && autorizar.mutate()}
+                    disabled={!residenteSel || autorizar.isPending}
+                    className={`w-full ${btnPrimario}`}>
+                    {autorizar.isPending ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+                    Autorizar
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {error && (
+            <div className="text-sm text-danger-700 bg-danger-50 border border-danger-200 rounded-xl px-3 py-2 flex items-start gap-2">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Visitas() {
   const queryClient = useQueryClient()
   const { usuario } = useAuthStore()
@@ -351,12 +612,21 @@ export default function Visitas() {
   const [tab, setTab] = useState('activas')
   const [modalNuevaVisita, setModalNuevaVisita] = useState(false)
   const [modalNuevoVisitante, setModalNuevoVisitante] = useState(false)
+  const [visitanteEditar, setVisitanteEditar] = useState(null)
+  const [visitanteAutorizaciones, setVisitanteAutorizaciones] = useState(null)
   const [salidaRegistrada, setSalidaRegistrada] = useState(null)
 
   const [filtroResidenteId, setFiltroResidenteId] = useState('') 
   const [textoBusquedaHistorial, setTextoBusquedaHistorial] = useState('') 
   const [filtroFecha, setFiltroFecha] = useState('')
   const [, setTick] = useState(0)
+
+  // Paginación en cliente (patrón Nutrición) — 10 por página en todas las pestañas
+  const POR_PAGINA = 10
+  const [busquedaVisitantes, setBusquedaVisitantes] = useState('')
+  const [paginaVisitantes, setPaginaVisitantes] = useState(1)
+  const [paginaActivas, setPaginaActivas]       = useState(1)
+  const [paginaHistorial, setPaginaHistorial]   = useState(1)
 
   useEffect(() => {
     const intervalo = setInterval(() => setTick(t => t + 1), 10000)
@@ -387,6 +657,35 @@ export default function Visitas() {
     enabled: tab === 'historial',
   })
 
+  // Listado de visitantes (catálogo) — todos. Filtro y paginado en cliente.
+  const { data: visitantesTodos, isLoading: cargandoVisitantes } = useQuery({
+    queryKey: ['lista-visitantes'],
+    queryFn: () => visitantesService.listar(),
+    enabled: tab === 'visitantes',
+  })
+
+  const visitantesFiltrados = (visitantesTodos || []).filter(v => {
+    if (!busquedaVisitantes) return true
+    const q = busquedaVisitantes.toLowerCase()
+    return (
+      (v.nombre || '').toLowerCase().includes(q) ||
+      (v.dni    || '').toLowerCase().includes(q)
+    )
+  })
+
+  // Datos paginados de cada pestaña
+  const visitantesPagina = visitantesFiltrados.slice(
+    (paginaVisitantes - 1) * POR_PAGINA, paginaVisitantes * POR_PAGINA
+  )
+  const visitasActivasPagina = (visitasActivas || []).slice(
+    (paginaActivas - 1) * POR_PAGINA, paginaActivas * POR_PAGINA
+  )
+  // historialFiltrado se calcula más abajo, así que el slicing está en su sitio
+
+  // Reiniciar a la página 1 cuando cambia el filtro/búsqueda correspondiente
+  useEffect(() => { setPaginaVisitantes(1) }, [busquedaVisitantes])
+  useEffect(() => { setPaginaHistorial(1) },  [filtroResidenteId, filtroFecha])
+
   const mutacionSalida = useMutation({
     mutationFn: (id) => visitantesService.registrarSalida(id),
     onSuccess: (data, id) => {
@@ -403,10 +702,14 @@ export default function Visitas() {
     if (!filtroFecha) return true
     return v.fecha_hora_entrada?.startsWith(filtroFecha)
   }) || []
+  const historialPagina = historialFiltrado.slice(
+    (paginaHistorial - 1) * POR_PAGINA, paginaHistorial * POR_PAGINA
+  )
 
   const tabs = [
-    { key: 'activas', label: 'Visitas activas', icon: Circle, badge: visitasActivas?.length },
-    { key: 'historial', label: 'Historial', icon: ClipboardList },
+    { key: 'activas',     label: 'Visitas activas', icon: Circle,         badge: visitasActivas?.length },
+    { key: 'historial',   label: 'Historial',       icon: ClipboardList },
+    { key: 'visitantes',  label: 'Visitantes',      icon: Users,          badge: visitantesTodos?.length },
   ]
 
   const Spinner = () => (
@@ -434,10 +737,12 @@ export default function Visitas() {
               <UserPlus size={15} /> Nuevo visitante
             </button>
           )}
-          <button onClick={() => setModalNuevaVisita(true)}
-            className="bg-gradient-to-br from-warm-600 to-warm-500 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 shadow-md hover:shadow-lg hover:-translate-y-0.5 transition">
-            <LogIn size={16} /> Nueva visita
-          </button>
+          {esAdmin && (
+            <button onClick={() => setModalNuevaVisita(true)}
+              className="bg-gradient-to-br from-warm-600 to-warm-500 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 shadow-md hover:shadow-lg hover:-translate-y-0.5 transition">
+              <LogIn size={16} /> Nueva visita
+            </button>
+          )}
         </div>
       </div>
 
@@ -464,7 +769,7 @@ export default function Visitas() {
 
       {/* Contenido de Pestañas */}
       <div style={{ animation: 'fadeIn 0.3s ease both' }}>
-        {tab === 'activas' ? (
+        {tab === 'activas' && (
           cargandoActivas ? <Spinner /> : !visitasActivas || visitasActivas.length === 0 ? (
             <div className="text-center py-16 bg-warm-50 rounded-2xl border border-dashed border-cream-400">
               <House size={40} className="mx-auto text-cream-400 mb-3" />
@@ -477,6 +782,7 @@ export default function Visitas() {
                 <table className="w-full text-left border-collapse text-sm">
                   <thead>
                     <tr className="bg-warm-50 text-warm-700 border-b border-cream-400 font-bold">
+                      <th className="p-4 w-14">#</th>
                       <th className="p-4">Visitante</th>
                       <th className="p-4">Residente / Destino</th>
                       <th className="p-4">Ingreso</th>
@@ -485,10 +791,11 @@ export default function Visitas() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-cream-200 text-warm-800">
-                    {visitasActivas.map(v => {
+                    {visitasActivasPagina.map((v, i) => {
                       const finalizado = salidaRegistrada === v.id
                       return (
                         <tr key={v.id} className={`transition ${finalizado ? 'opacity-40 bg-health-50' : 'hover:bg-warm-50/50'}`}>
+                          <td className="p-4 text-sm font-semibold text-warm-400">{(paginaActivas - 1) * POR_PAGINA + i + 1}</td>
                           <td className="p-4">
                             <div className="font-semibold text-warm-800">{v.visitante_nombre}</div>
                             <div className="text-xs text-warm-400">C.I.: {v.visitante_dni}</div>
@@ -509,10 +816,14 @@ export default function Visitas() {
                             </span>
                           </td>
                           <td className="p-4 text-right">
-                            <button onClick={() => mutacionSalida.mutate(v.id)} disabled={mutacionSalida.isPending || finalizado}
-                              className="ml-auto px-3 py-1.5 text-xs font-bold text-danger-700 border border-danger-200 bg-danger-50 hover:bg-danger-100 rounded-xl flex items-center gap-1.5 transition disabled:opacity-50">
-                              {finalizado ? <Check size={13} /> : <LogOut size={13} />} Registrar Salida
-                            </button>
+                            {esAdmin ? (
+                              <button onClick={() => mutacionSalida.mutate(v.id)} disabled={mutacionSalida.isPending || finalizado}
+                                className="ml-auto px-3 py-1.5 text-xs font-bold text-danger-700 border border-danger-200 bg-danger-50 hover:bg-danger-100 rounded-xl flex items-center gap-1.5 transition disabled:opacity-50">
+                                {finalizado ? <Check size={13} /> : <LogOut size={13} />} Registrar Salida
+                              </button>
+                            ) : (
+                              <span className="text-xs text-warm-400 italic">Solo lectura</span>
+                            )}
                           </td>
                         </tr>
                       )
@@ -520,9 +831,12 @@ export default function Visitas() {
                   </tbody>
                 </table>
               </div>
+              <PaginadorSimple pagina={paginaActivas} total={visitasActivas.length} porPagina={POR_PAGINA} onChange={setPaginaActivas} />
             </div>
           )
-        ) : (
+        )}
+
+        {tab === 'historial' && (
           /* HISTORIAL */
           <div className="space-y-4">
             <div className="flex flex-wrap gap-3 bg-warm-50 border border-cream-400 p-3 rounded-2xl items-center">
@@ -583,6 +897,7 @@ export default function Visitas() {
                   <table className="w-full text-left border-collapse text-sm">
                     <thead>
                       <tr className="bg-warm-50 text-warm-700 border-b border-cream-400 font-bold">
+                        <th className="p-4 w-14">#</th>
                         <th className="p-4">Visitante</th>
                         <th className="p-4">Residente</th>
                         <th className="p-4">Entrada</th>
@@ -591,14 +906,16 @@ export default function Visitas() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-cream-200 text-warm-800">
-                      {historialFiltrado.map(h => (
+                      {historialPagina.map((h, i) => (
                         <tr key={h.id} className="hover:bg-warm-50/50 transition">
+                          <td className="p-4 text-sm font-semibold text-warm-400">{(paginaHistorial - 1) * POR_PAGINA + i + 1}</td>
                           <td className="p-4">
                             <div className="font-semibold text-warm-800">{h.visitante_nombre}</div>
                             <div className="text-xs text-warm-400">C.I.: {h.visitante_dni}</div>
                           </td>
                           <td className="p-4">
                             <div className="font-semibold text-warm-800">{h.residente_nombre}</div>
+                            <div className="text-xs text-warm-400">C.I.: {h.residente_dni || '—'}</div>
                             <div className="text-xs text-warm-400">{RELACION_LABEL[h.relacion] || h.relacion}</div>
                           </td>
                           <td className="p-4 text-warm-600 whitespace-nowrap">
@@ -619,14 +936,134 @@ export default function Visitas() {
                     </tbody>
                   </table>
                 </div>
+                <PaginadorSimple pagina={paginaHistorial} total={historialFiltrado.length} porPagina={POR_PAGINA} onChange={setPaginaHistorial} />
               </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'visitantes' && (
+          /* VISITANTES (catálogo) */
+          <div className="space-y-4">
+            {/* Barra de búsqueda */}
+            <div className="flex flex-wrap gap-3 bg-warm-50 border border-cream-400 p-3 rounded-2xl items-center">
+              <div className="flex-1 min-w-[250px] relative">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-warm-400" />
+                <input
+                  placeholder="Buscar por nombre o C.I…"
+                  value={busquedaVisitantes}
+                  onChange={(e) => setBusquedaVisitantes(e.target.value)}
+                  className={`${inputCls} pl-9`}
+                />
+              </div>
+              <div className="text-xs text-warm-500 font-semibold">
+                {visitantesFiltrados.length} {visitantesFiltrados.length === 1 ? 'visitante' : 'visitantes'}
+              </div>
+            </div>
+
+            {cargandoVisitantes ? <Spinner /> : visitantesFiltrados.length === 0 ? (
+              <div className="text-center py-16 bg-warm-50 rounded-2xl border border-dashed border-cream-400">
+                <Users size={40} className="mx-auto text-cream-400 mb-3" />
+                <p className="text-warm-700 font-bold">
+                  {busquedaVisitantes ? 'No se encontraron visitantes' : 'Aún no hay visitantes registrados'}
+                </p>
+                <p className="text-warm-400 text-xs mt-0.5">
+                  {busquedaVisitantes ? 'Prueba con otro nombre o C.I.' : 'Usa "Nuevo visitante" para registrar el primero.'}
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Tabla — desktop */}
+                <div className="hidden md:block bg-white border border-cream-400 rounded-2xl shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-warm-50 text-warm-700 border-b border-cream-400 font-bold">
+                          <th className="p-4 w-14">#</th>
+                          <th className="p-4">Nombre</th>
+                          <th className="p-4">C.I.</th>
+                          <th className="p-4">Teléfono</th>
+                          <th className="p-4">Registrado por</th>
+                          <th className="p-4 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-cream-200 text-warm-800">
+                        {visitantesPagina.map((v, i) => (
+                          <tr key={v.id} className="hover:bg-warm-50/50 transition">
+                            <td className="p-4 text-sm font-semibold text-warm-400">{(paginaVisitantes - 1) * POR_PAGINA + i + 1}</td>
+                            <td className="p-4 font-semibold">{v.nombre}</td>
+                            <td className="p-4 text-warm-600">{v.dni}</td>
+                            <td className="p-4 text-warm-600">{v.telefono || <span className="text-warm-300 italic">—</span>}</td>
+                            <td className="p-4 text-warm-500 text-xs">{v.registrado_por_nombre || '—'}</td>
+                            <td className="p-4 text-right">
+                              <div className="flex gap-2 justify-end flex-wrap">
+                                <button
+                                  onClick={() => setVisitanteAutorizaciones(v)}
+                                  className="px-2.5 py-1.5 text-xs font-bold text-warm-700 border border-cream-400 bg-warm-50 hover:bg-warm-100 rounded-lg flex items-center gap-1.5 transition">
+                                  <ShieldCheck size={12} /> Autorizaciones
+                                </button>
+                                {esAdmin && (
+                                  <button
+                                    onClick={() => setVisitanteEditar(v)}
+                                    className="px-2.5 py-1.5 text-xs font-bold text-warm-700 border border-cream-400 bg-white hover:bg-warm-50 rounded-lg flex items-center gap-1.5 transition">
+                                    <Pencil size={12} /> Editar
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Cards — móvil */}
+                <div className="md:hidden space-y-2">
+                  {visitantesPagina.map((v, i) => (
+                    <div key={v.id} className="bg-white border border-cream-300 rounded-xl p-3 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2 min-w-0">
+                          <span className="text-xs font-bold text-warm-400 bg-warm-100 rounded-full w-6 h-6 flex items-center justify-center shrink-0">{(paginaVisitantes - 1) * POR_PAGINA + i + 1}</span>
+                          <div className="min-w-0">
+                            <div className="font-bold text-warm-800 truncate">{v.nombre}</div>
+                            <div className="text-xs text-warm-500">C.I.: {v.dni}</div>
+                            {v.telefono && <div className="text-xs text-warm-500">Tel: {v.telefono}</div>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          onClick={() => setVisitanteAutorizaciones(v)}
+                          className="flex-1 px-2.5 py-1.5 text-xs font-bold text-warm-700 border border-cream-400 bg-warm-50 hover:bg-warm-100 rounded-lg flex items-center justify-center gap-1.5">
+                          <ShieldCheck size={12} /> Autorizaciones
+                        </button>
+                        {esAdmin && (
+                          <button
+                            onClick={() => setVisitanteEditar(v)}
+                            className="flex-1 px-2.5 py-1.5 text-xs font-bold text-warm-700 border border-cream-400 bg-white hover:bg-warm-50 rounded-lg flex items-center justify-center gap-1.5">
+                            <Pencil size={12} /> Editar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Paginación con numeración */}
+                <div className="bg-white border border-cream-300 rounded-xl overflow-hidden">
+                  <PaginadorSimple pagina={paginaVisitantes} total={visitantesFiltrados.length} porPagina={POR_PAGINA} onChange={setPaginaVisitantes} />
+                </div>
+              </>
             )}
           </div>
         )}
       </div>
 
       {modalNuevaVisita && <ModalNuevaVisita onClose={() => setModalNuevaVisita(false)} onGuardado={() => queryClient.invalidateQueries(['visitas-activas'])} />}
-      {modalNuevoVisitante && <ModalNuevoVisitante onClose={() => setModalNuevoVisitante(false)} onGuardado={() => queryClient.invalidateQueries(['visitas-activas'])} />}
+      {modalNuevoVisitante && <ModalNuevoVisitante onClose={() => setModalNuevoVisitante(false)} onGuardado={() => { queryClient.invalidateQueries(['visitas-activas']); queryClient.invalidateQueries(['lista-visitantes']) }} />}
+      {visitanteEditar && <ModalEditarVisitante visitante={visitanteEditar} onClose={() => setVisitanteEditar(null)} onGuardado={() => queryClient.invalidateQueries(['lista-visitantes'])} />}
+      {visitanteAutorizaciones && <ModalGestionarAutorizaciones visitante={visitanteAutorizaciones} esAdmin={esAdmin} onClose={() => setVisitanteAutorizaciones(null)} />}
 
       <style>{`
         @keyframes fadeUp { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }

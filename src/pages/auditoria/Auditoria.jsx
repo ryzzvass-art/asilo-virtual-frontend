@@ -61,6 +61,7 @@ const VALORES = {
   },
   rol: { administrador: 'Administrador', cuidador: 'Cuidador' },
   tipo_comida: { desayuno: 'Desayuno', almuerzo: 'Almuerzo', merienda: 'Merienda', cena: 'Cena' },
+  tipo_consulta: { control_rutinario: 'Control rutinario', urgencia: 'Urgencia', seguimiento: 'Seguimiento' },
 }
 
 const ETIQUETAS = {
@@ -72,8 +73,31 @@ const ETIQUETAS = {
 
 const ENTIDADES = {
   usuarios: 'Usuario', residentes: 'Residente', medicamentos: 'Medicamento',
-  prescripciones: 'Prescripción', planes: 'Plan nutricional', 
-  actividades: 'Actividad', autorizaciones_visitantes: 'Autorización de visitante',
+  stock_medicamentos: 'Lote de stock', prescripciones: 'Prescripción',
+  planes: 'Plan nutricional', planes_nutricionales: 'Plan nutricional',
+  plantillas_nutricionales: 'Plantilla nutricional', alimentos: 'Alimento',
+  restricciones: 'Restricción', alimento_restricciones: 'Vínculo alimento-restricción',
+  residente_restricciones: 'Restricción de residente', comidas_diarias: 'Comida',
+  actividades: 'Actividad', actividad_residentes: 'Participante de actividad',
+  visitantes: 'Visitante', autorizaciones_visitantes: 'Autorización de visitante',
+  registros_visita: 'Registro de visita', contactos_emergencia: 'Contacto de emergencia',
+  historial_medico: 'Historial médico', observaciones_diarias: 'Observación diaria',
+  turnos_medicos: 'Turno médico',
+}
+
+// Para cada entidad: qué campo(s) del snapshot usar como nombre legible.
+// Si la entidad no está aquí (pivotes, sin texto), se hace fallback a "#id".
+const ENTIDAD_NOMBRE_CAMPOS = {
+  usuarios:                  ['nombre', 'apellido'],
+  residentes:                ['nombre', 'apellido'],
+  medicamentos:              ['nombre_comercial'],
+  actividades:               ['nombre'],
+  alimentos:                 ['nombre'],
+  restricciones:             ['nombre'],
+  plantillas_nutricionales:  ['nombre'],
+  visitantes:                ['nombre'],
+  contactos_emergencia:      ['nombre'],
+  turnos_medicos:            ['tipo_consulta'],
 }
 
 function etiqueta(k) {
@@ -82,6 +106,41 @@ function etiqueta(k) {
 
 function nombreEntidad(e) {
   return ENTIDADES[e] || (e ? e.charAt(0).toUpperCase() + e.slice(1) : '—')
+}
+
+// Extrae un nombre representativo del snapshot (datos_nuevos preferido,
+// datos_anteriores como respaldo en ediciones/eliminaciones).
+function nombreRepresentativo(entrada) {
+  const campos = ENTIDAD_NOMBRE_CAMPOS[entrada.entidad]
+  if (!campos) return null   // entidad sin texto claro → usaremos #id
+
+  const fuente =
+    (entrada.datos_nuevos && Object.keys(entrada.datos_nuevos).length ? entrada.datos_nuevos : null) ||
+    (entrada.datos_anteriores && Object.keys(entrada.datos_anteriores).length ? entrada.datos_anteriores : null)
+
+  if (!fuente) return null
+
+  const partes = campos
+    .map(c => fuente[c])
+    .filter(v => v !== null && v !== undefined && String(v).trim() !== '')
+
+  if (!partes.length) return null
+
+  // Si el campo tiene un valor "bonito" en VALORES (ej. tipo_consulta), traducirlo
+  let texto = partes.map((v, i) => {
+    const k = campos[i]
+    return (VALORES[k] && VALORES[k][String(v)]) ? VALORES[k][String(v)] : String(v)
+  }).join(' ')
+
+  return texto.trim() || null
+}
+
+// Devuelve el JSX/etiqueta para mostrar la entidad: nombre si existe, si no "#id"
+function descripcionEntidad(entrada) {
+  const nombre = nombreRepresentativo(entrada)
+  const tipo = nombreEntidad(entrada.entidad)
+  if (nombre) return { tipo, detalle: nombre, esNombre: true }
+  return { tipo, detalle: `#${entrada.entidad_id}`, esNombre: false }
 }
 
 function formatVal(k, v) {
@@ -140,7 +199,7 @@ function ModalDetalle({ entrada, onClose }) {
           <div className="grid grid-cols-2 gap-4 bg-warm-50 p-5 rounded-2xl">
             <div><span className="text-xs font-semibold text-warm-700 block mb-1">Usuario</span><p className="font-semibold text-warm-800">{entrada.usuario_nombre}</p></div>
             <div><span className="text-xs font-semibold text-warm-700 block mb-1">Acción</span><BadgeAccion accion={entrada.accion} /></div>
-            <div><span className="text-xs font-semibold text-warm-700 block mb-1">Entidad</span><p className="font-semibold text-warm-800">{nombreEntidad(entrada.entidad)} #{entrada.entidad_id}</p></div>
+            <div><span className="text-xs font-semibold text-warm-700 block mb-1">Entidad</span><p className="font-semibold text-warm-800">{(() => { const d = descripcionEntidad(entrada); return <>{d.tipo} <span className={d.esNombre ? 'text-warm-600' : 'text-warm-400'}>{d.esNombre ? `«${d.detalle}»` : d.detalle}</span></> })()}</p></div>
             <div><span className="text-xs font-semibold text-warm-700 block mb-1">IP</span><p className="font-semibold text-warm-800">{entrada.ip || '—'}</p></div>
           </div>
 
@@ -226,13 +285,40 @@ export default function Auditoria() {
           <label className="block text-sm font-semibold text-warm-700 mb-1.5">Entidad</label>
           <select value={filtros.entidad} onChange={e => { setFiltros({ ...filtros, entidad: e.target.value }); setPage(1) }} className={`${inputCls} cursor-pointer`}>
             <option value="">Todas las entidades</option>
-            <option value="usuarios">Usuarios</option>
-            <option value="residentes">Residentes</option>
-            <option value="medicamentos">Medicamentos</option>
-            <option value="prescripciones">Prescripciones</option>
-            <option value="planes">Planes nutricionales</option>
-            <option value="actividades">Actividades</option>
-            <option value="autorizaciones_visitantes">Autorizaciones</option>
+            <optgroup label="Personas">
+              <option value="usuarios">Usuarios</option>
+              <option value="residentes">Residentes</option>
+              <option value="visitantes">Visitantes</option>
+            </optgroup>
+            <optgroup label="Residentes">
+              <option value="contactos_emergencia">Contactos de emergencia</option>
+              <option value="historial_medico">Historial médico</option>
+              <option value="observaciones_diarias">Observaciones diarias</option>
+              <option value="turnos_medicos">Turnos médicos</option>
+            </optgroup>
+            <optgroup label="Medicamentos">
+              <option value="medicamentos">Medicamentos</option>
+              <option value="stock_medicamentos">Lotes de stock</option>
+              <option value="prescripciones">Prescripciones</option>
+              <option value="administraciones_medicamento">Administraciones</option>
+            </optgroup>
+            <optgroup label="Nutrición">
+              <option value="alimentos">Alimentos</option>
+              <option value="restricciones">Restricciones</option>
+              <option value="alimento_restricciones">Vínculos alimento-restricción</option>
+              <option value="residente_restricciones">Restricciones de residente</option>
+              <option value="plantillas_nutricionales">Plantillas nutricionales</option>
+              <option value="planes_nutricionales">Planes nutricionales</option>
+              <option value="comidas_diarias">Comidas</option>
+            </optgroup>
+            <optgroup label="Actividades">
+              <option value="actividades">Actividades</option>
+              <option value="actividad_residentes">Participantes de actividad</option>
+            </optgroup>
+            <optgroup label="Visitas">
+              <option value="autorizaciones_visitantes">Autorizaciones de visitante</option>
+              <option value="registros_visita">Registros de visita</option>
+            </optgroup>
           </select>
         </div>
 
@@ -242,6 +328,9 @@ export default function Auditoria() {
             <option value="">Todas las acciones</option>
             <option value="crear">Crear</option>
             <option value="editar">Editar</option>
+            <option value="archivar">Archivar</option>
+            <option value="activar">Activar</option>
+            <option value="eliminar">Eliminar</option>
           </select>
         </div>
 
@@ -286,7 +375,7 @@ export default function Auditoria() {
                     <td className="px-6 py-4 text-sm text-warm-600">{fmtFecha(e.fecha_hora)}</td>
                     <td className="px-6 py-4 font-medium text-warm-800">{e.usuario_nombre}</td>
                     <td className="px-6 py-4"><BadgeAccion accion={e.accion} /></td>
-                    <td className="px-6 py-4 text-sm text-warm-600">{nombreEntidad(e.entidad)} <span className="text-warm-400">#{e.entidad_id}</span></td>
+                    <td className="px-6 py-4 text-sm text-warm-600">{(() => { const d = descripcionEntidad(e); return <>{d.tipo} <span className={d.esNombre ? 'text-warm-700 font-medium' : 'text-warm-400'}>{d.esNombre ? `«${d.detalle}»` : d.detalle}</span></> })()}</td>
                     <td className="px-6 py-4 text-sm text-warm-500">{e.ip || '—'}</td>
                     <td className="px-6 py-4">
                       <button onClick={() => setDetalle(e)} className="text-warm-600 hover:text-warm-800 font-semibold inline-flex items-center gap-1">
@@ -323,7 +412,7 @@ export default function Auditoria() {
                 </div>
                 <BadgeAccion accion={e.accion} />
               </div>
-              <p className="text-warm-600 mb-4">{nombreEntidad(e.entidad)} #{e.entidad_id}</p>
+              <p className="text-warm-600 mb-4">{(() => { const d = descripcionEntidad(e); return <>{d.tipo} <span className={d.esNombre ? 'text-warm-700 font-medium' : 'text-warm-400'}>{d.esNombre ? `«${d.detalle}»` : d.detalle}</span></> })()}</p>
               <button onClick={() => setDetalle(e)} className="w-full text-warm-600 hover:text-warm-800 font-semibold flex items-center justify-center gap-2 py-2 border border-cream-400 rounded-xl">
                 Ver detalle completo <ArrowRight size={16} />
               </button>

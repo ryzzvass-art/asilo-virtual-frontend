@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   X, Plus, ChevronDown, ChevronUp, Loader2, CheckCircle2,
-  AlertTriangle, Utensils, ClipboardList, CalendarDays, Trash2, Eye
+  AlertTriangle, Utensils, ClipboardList, CalendarDays, Trash2
 } from 'lucide-react'
 import { nutricionService } from '../../services/nutricionService'
 
+// ── Clases reutilizables (mismo sistema que Nutricion.jsx) ─
 const inputCls = "w-full px-3 py-2 border border-cream-400 rounded-xl text-sm bg-warm-50 text-warm-800 focus:outline-none focus:ring-2 focus:ring-warm-400 focus:border-warm-500 transition"
 const btnPrimario = "px-4 py-2 bg-gradient-to-br from-warm-600 to-warm-500 text-white rounded-xl text-sm font-semibold shadow-sm hover:shadow-md disabled:opacity-50 transition flex items-center justify-center gap-2"
 const btnSecundario = "px-4 py-2 border border-cream-400 rounded-xl text-warm-600 hover:bg-warm-50 text-sm font-semibold transition"
@@ -13,10 +14,7 @@ const btnSecundario = "px-4 py-2 border border-cream-400 rounded-xl text-warm-60
 const TIPOS_COMIDA = ['desayuno', 'almuerzo', 'merienda', 'cena']
 const TIPO_COMIDA_ICON = { desayuno: '☕', almuerzo: '🍽️', merienda: '🥪', cena: '🍷' }
 
-function IconoComida({ tipo }) {
-  return <span aria-hidden="true">{TIPO_COMIDA_ICON[tipo] || '🍴'}</span>
-}
-
+// Extrae un mensaje de error legible de una respuesta DRF
 function extraerError(err, fallback = 'Ocurrió un error inesperado.') {
   const data = err?.response?.data
   if (!data) return err?.message ? `No se pudo conectar con el servidor (${err.message}).` : fallback
@@ -32,6 +30,7 @@ function extraerError(err, fallback = 'Ocurrió un error inesperado.') {
   return partes.length ? partes.join(' ') : fallback
 }
 
+// ── Spinner ────────────────────────────────────────────────
 function Spinner() {
   return (
     <div className="flex items-center justify-center py-10">
@@ -40,8 +39,10 @@ function Spinner() {
   )
 }
 
-// esAdmin=false (cuidador) → modal de SOLO LECTURA
-export default function ModalPlanNutricional({ residenteId, onClose, esAdmin = false }) {
+// ════════════════════════════════════════════════════════════
+// MODAL PRINCIPAL
+// ════════════════════════════════════════════════════════════
+export default function ModalPlanNutricional({ residenteId, onClose }) {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState('vigente')
   const [creandoPlan, setCreandoPlan] = useState(false)
@@ -62,27 +63,22 @@ export default function ModalPlanNutricional({ residenteId, onClose, esAdmin = f
         className="bg-white rounded-[22px] shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
         style={{ animation: 'modalPop 0.24s cubic-bezier(0.34,1.56,0.64,1)' }}>
 
+        {/* Header */}
         <div className="flex items-center gap-3 p-5 border-b border-cream-400 sticky top-0 bg-warm-50 z-10">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-warm-600 to-warm-500 flex items-center justify-center shrink-0">
             <Utensils size={20} className="text-white" />
           </div>
           <div className="flex-1">
             <h2 className="text-base font-bold text-warm-800">Plan nutricional</h2>
-            <p className="text-xs text-warm-500">
-              {esAdmin ? 'Gestión del menú del residente' : 'Consulta del menú del residente'}
-            </p>
+            <p className="text-xs text-warm-500">Gestión del menú del residente</p>
           </div>
-          {!esAdmin && (
-            <span className="text-xs text-warm-500 bg-warm-100 px-2.5 py-1 rounded-full font-semibold inline-flex items-center gap-1 mr-1">
-              <Eye size={12} /> Solo lectura
-            </span>
-          )}
           <button onClick={onClose}
             className="w-8 h-8 rounded-lg text-gray-400 hover:bg-cream-200 hover:text-warm-800 flex items-center justify-center transition">
             <X size={16} />
           </button>
         </div>
 
+        {/* Tabs */}
         <div className="flex gap-1.5 p-4 border-b border-cream-400 bg-warm-50/50">
           {[
             { key: 'vigente',   label: 'Plan vigente',              icon: CheckCircle2 },
@@ -105,7 +101,7 @@ export default function ModalPlanNutricional({ residenteId, onClose, esAdmin = f
         <div className="p-5">
           {isLoading ? <Spinner /> : tab === 'vigente' ? (
             <div className="space-y-4">
-              {creandoPlan && esAdmin ? (
+              {creandoPlan ? (
                 <FormNuevoPlan
                   residenteId={residenteId}
                   onCancelar={() => setCreandoPlan(false)}
@@ -115,18 +111,18 @@ export default function ModalPlanNutricional({ residenteId, onClose, esAdmin = f
                   }}
                 />
               ) : vigente ? (
-                <PlanConMenus plan={vigente} residenteId={residenteId} esVigente esAdmin={esAdmin} />
+                <PlanConMenus plan={vigente} residenteId={residenteId} esVigente />
               ) : (
                 <div className="flex flex-col items-center justify-center py-10 gap-3">
                   <div className="w-14 h-14 rounded-2xl bg-warm-100 flex items-center justify-center">
                     <Utensils size={26} className="text-warm-400" />
                   </div>
                   <p className="text-warm-500 text-sm font-medium">Sin plan nutricional vigente</p>
-                  {esAdmin && <p className="text-warm-400 text-xs">Asigna un plan aprobado para comenzar</p>}
+                  <p className="text-warm-400 text-xs">Asigna un plan aprobado para comenzar</p>
                 </div>
               )}
 
-              {esAdmin && !creandoPlan && (
+              {!creandoPlan && (
                 <button onClick={() => setCreandoPlan(true)}
                   className="w-full py-2.5 border-2 border-dashed border-cream-400 rounded-xl text-sm text-warm-600 hover:border-warm-400 hover:bg-warm-50 font-semibold transition flex items-center justify-center gap-2">
                   <Plus size={15} />
@@ -135,6 +131,7 @@ export default function ModalPlanNutricional({ residenteId, onClose, esAdmin = f
               )}
             </div>
           ) : (
+            // Historial
             <div className="space-y-3">
               {archivados.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-10 gap-2">
@@ -168,7 +165,7 @@ export default function ModalPlanNutricional({ residenteId, onClose, esAdmin = f
                     </button>
                     {planExpandido === p.id && (
                       <div className="border-t border-cream-400 bg-warm-50/40">
-                        <PlanConMenus plan={p} residenteId={residenteId} esVigente={false} esAdmin={esAdmin} />
+                        <PlanConMenus plan={p} residenteId={residenteId} esVigente={false} />
                       </div>
                     )}
                   </div>
@@ -187,6 +184,9 @@ export default function ModalPlanNutricional({ residenteId, onClose, esAdmin = f
   )
 }
 
+// ════════════════════════════════════════════════════════════
+// FORMULARIO NUEVO PLAN (asignar plantilla aprobada)
+// ════════════════════════════════════════════════════════════
 function FormNuevoPlan({ residenteId, onCancelar, onGuardado }) {
   const [paso, setPaso]               = useState(1)
   const [plantillaId, setPlantillaId] = useState('')
@@ -194,7 +194,6 @@ function FormNuevoPlan({ residenteId, onCancelar, onGuardado }) {
   const [conflictos, setConflictos]   = useState([])
   const [reemplazos, setReemplazos]   = useState({})
   const [error, setError]             = useState('')
-  const [exito, setExito]             = useState(null)
 
   const { data: plantillasAprobadas } = useQuery({
     queryKey: ['plantillas-aprobadas'],
@@ -211,11 +210,7 @@ function FormNuevoPlan({ residenteId, onCancelar, onGuardado }) {
         setPaso(2)
         setError('')
       } else {
-        setExito({
-          conReemplazos: Object.keys(reemplazos).length > 0,
-          advertencias: data?.advertencias || [],
-        })
-        setError('')
+        onGuardado()
       }
     },
     onError: (err) => setError(extraerError(err, 'No se pudo asignar el plan.')),
@@ -244,45 +239,10 @@ function FormNuevoPlan({ residenteId, onCancelar, onGuardado }) {
     })
   }
 
-  if (exito) {
-    return (
-      <div className="bg-health-50 border border-health-200 rounded-2xl p-5 space-y-4 text-center"
-        style={{ animation: 'fadeIn 0.2s ease' }}>
-        <div className="w-14 h-14 rounded-2xl bg-health-100 flex items-center justify-center mx-auto">
-          <CheckCircle2 size={28} className="text-health-600" />
-        </div>
-        <div>
-          <p className="text-base font-bold text-warm-800">¡Plan asignado correctamente!</p>
-          <p className="text-sm text-warm-600 mt-1">
-            {exito.conReemplazos
-              ? 'El plan se asignó al residente con los reemplazos que elegiste. El plan original (plantilla) no se modificó.'
-              : 'El menú quedó asignado al residente sin conflictos con sus restricciones.'}
-          </p>
-        </div>
-
-        {exito.advertencias.length > 0 && (
-          <div className="bg-alert-50 border border-alert-200 rounded-xl p-3 text-left">
-            <p className="text-xs font-semibold text-alert-700 flex items-center gap-1.5 mb-1">
-              <AlertTriangle size={13} /> Avisos (no bloquean la asignación):
-            </p>
-            {exito.advertencias.map((a, i) => (
-              <p key={i} className="text-xs text-alert-600 capitalize">
-                {a.tipo_comida ? `${a.tipo_comida}: ` : ''}{a.restriccion}
-              </p>
-            ))}
-          </div>
-        )}
-
-        <button onClick={onGuardado} className={`w-full ${btnPrimario}`}>
-          <CheckCircle2 size={15} /> Listo
-        </button>
-      </div>
-    )
-  }
-
   return (
     <div className="bg-warm-50 border border-cream-400 rounded-2xl p-4 space-y-4">
 
+      {/* Indicador de pasos */}
       <div className="flex items-center gap-2">
         {[{ n: 1, label: 'Elegir plan' }, { n: 2, label: 'Resolver conflictos' }].map((s, i) => (
           <div key={s.n} className="flex items-center gap-1.5 flex-1">
@@ -296,6 +256,7 @@ function FormNuevoPlan({ residenteId, onCancelar, onGuardado }) {
         ))}
       </div>
 
+      {/* PASO 1 */}
       {paso === 1 && (
         <>
           <div>
@@ -318,6 +279,7 @@ function FormNuevoPlan({ residenteId, onCancelar, onGuardado }) {
             )}
           </div>
 
+          {/* Preview comidas */}
           {plantillaSelObj && (
             <div className="bg-white rounded-xl border border-cream-400 p-3">
               <p className="text-xs font-semibold text-warm-700 mb-2 flex items-center gap-1.5">
@@ -327,7 +289,7 @@ function FormNuevoPlan({ residenteId, onCancelar, onGuardado }) {
                 {plantillaSelObj.comidas?.map(c => (
                   <div key={c.id} className="text-xs bg-warm-50 border border-cream-400/60 rounded-lg px-2 py-1.5">
                     <span className="font-semibold text-warm-700 capitalize">
-                      <IconoComida tipo={c.tipo_comida} /> {c.tipo_comida}:
+                      {TIPO_COMIDA_ICON[c.tipo_comida]} {c.tipo_comida}:
                     </span>
                     <span className="text-warm-600 ml-1">{c.alimento_nombre}</span>
                   </div>
@@ -347,19 +309,19 @@ function FormNuevoPlan({ residenteId, onCancelar, onGuardado }) {
         </>
       )}
 
+      {/* PASO 2 — conflictos */}
       {paso === 2 && (
         <div className="space-y-3">
           <div className="bg-alert-50 border border-alert-200 rounded-xl p-3 flex gap-2">
             <AlertTriangle size={15} className="text-alert-600 shrink-0 mt-0.5" />
             <p className="text-sm text-alert-700">
               Algunos alimentos violan restricciones del residente. Elige un reemplazo para cada uno.
-              El plan original no se modifica; el cambio solo aplica a este residente.
             </p>
           </div>
           {conflictos.map(c => (
             <div key={c.comida_plantilla_id} className="border border-danger-200 rounded-xl p-3 bg-danger-50/40">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-sm"><IconoComida tipo={c.tipo_comida} /></span>
+                <span className="text-sm">{TIPO_COMIDA_ICON[c.tipo_comida]}</span>
                 <span className="text-sm font-semibold text-warm-800 capitalize">{c.tipo_comida}</span>
                 <span className="text-xs text-danger-600 bg-danger-100 px-2 py-0.5 rounded-full ml-auto">
                   🚫 {c.alimento_nombre}
@@ -370,9 +332,6 @@ function FormNuevoPlan({ residenteId, onCancelar, onGuardado }) {
               </p>
               {c.sugerencias?.length > 0 ? (
                 <div className="space-y-1.5">
-                  <p className="text-[11px] font-semibold text-warm-500 uppercase tracking-wide">
-                    Elige un reemplazo:
-                  </p>
                   {c.sugerencias.map(s => (
                     <label key={s.alimento_id}
                       className={`flex items-center gap-2 px-3 py-2 rounded-xl border cursor-pointer transition text-xs
@@ -390,9 +349,7 @@ function FormNuevoPlan({ residenteId, onCancelar, onGuardado }) {
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-warm-400 italic">
-                  Sin alimentos de reemplazo disponibles. Revisa que existan alimentos activos sin esta restricción.
-                </p>
+                <p className="text-xs text-warm-400 italic">Sin sugerencias disponibles.</p>
               )}
             </div>
           ))}
@@ -422,8 +379,10 @@ function FormNuevoPlan({ residenteId, onCancelar, onGuardado }) {
   )
 }
 
-// esAdmin controla la gestión de comidas (agregar/eliminar)
-function PlanConMenus({ plan, residenteId, esVigente, esAdmin = false }) {
+// ════════════════════════════════════════════════════════════
+// PLAN CON MENÚS (vigente o archivado)
+// ════════════════════════════════════════════════════════════
+function PlanConMenus({ plan, residenteId, esVigente }) {
   const queryClient = useQueryClient()
   const [agregando, setAgregando] = useState(false)
 
@@ -437,10 +396,9 @@ function PlanConMenus({ plan, residenteId, esVigente, esAdmin = false }) {
     onSuccess: () => queryClient.invalidateQueries(['comidas', plan.id]),
   })
 
-  const puedeGestionar = esAdmin && esVigente
-
   return (
     <div className="space-y-3 p-1">
+      {/* Datos del plan */}
       <div className="bg-warm-50 border border-cream-400 rounded-xl p-3">
         <div className="flex items-center justify-between">
           <p className="font-semibold text-warm-800 text-sm capitalize">{plan.tipo_dieta}</p>
@@ -459,6 +417,7 @@ function PlanConMenus({ plan, residenteId, esVigente, esAdmin = false }) {
         </p>
       </div>
 
+      {/* Menús */}
       <div>
         <p className="text-xs font-bold text-warm-600 uppercase tracking-wide mb-2">
           Menús ({comidas?.length || 0})
@@ -471,14 +430,14 @@ function PlanConMenus({ plan, residenteId, esVigente, esAdmin = false }) {
               <div key={c.id}
                 className="flex items-center gap-2 text-sm bg-white border border-cream-400 rounded-xl px-3 py-2">
                 <span className="text-xs bg-warm-100 text-warm-600 px-2 py-0.5 rounded-full font-semibold capitalize shrink-0">
-                  <IconoComida tipo={c.tipo_comida} /> {c.tipo_comida}
+                  {TIPO_COMIDA_ICON[c.tipo_comida]} {c.tipo_comida}
                 </span>
                 <span className="text-warm-800 font-medium">{c.alimento_nombre}</span>
                 {c.descripcion_menu && (
                   <span className="text-xs text-warm-400">— {c.descripcion_menu}</span>
                 )}
                 <span className="text-xs text-warm-300 ml-auto shrink-0">{c.fecha}</span>
-                {puedeGestionar && (
+                {esVigente && (
                   <button
                     onClick={() => mutEliminarComida.mutate(c.id)}
                     className="text-danger-400 hover:text-danger-600 transition ml-1 shrink-0"
@@ -492,7 +451,8 @@ function PlanConMenus({ plan, residenteId, esVigente, esAdmin = false }) {
         )}
       </div>
 
-      {puedeGestionar && (
+      {/* Agregar comida puntual (solo vigente) */}
+      {esVigente && (
         agregando ? (
           <FormNuevaComida
             planId={plan.id}
@@ -514,6 +474,9 @@ function PlanConMenus({ plan, residenteId, esVigente, esAdmin = false }) {
   )
 }
 
+// ════════════════════════════════════════════════════════════
+// FORMULARIO NUEVA COMIDA PUNTUAL
+// ════════════════════════════════════════════════════════════
 function FormNuevaComida({ planId, residenteId, onCancelar, onGuardado }) {
   const [form, setForm] = useState({
     fecha: new Date().toISOString().split('T')[0],
@@ -592,6 +555,7 @@ function FormNuevaComida({ planId, residenteId, onCancelar, onGuardado }) {
           className={inputCls} />
       </div>
 
+      {/* Conflicto obligatorio (RF-25) */}
       {conflictoObligatorio && (
         <div className="bg-danger-50 border border-danger-200 rounded-xl p-3 flex gap-2">
           <AlertTriangle size={14} className="text-danger-600 shrink-0 mt-0.5" />
@@ -604,6 +568,7 @@ function FormNuevaComida({ planId, residenteId, onCancelar, onGuardado }) {
         </div>
       )}
 
+      {/* Advertencias recomendadas */}
       {advertencias.length > 0 && (
         <div className="bg-alert-50 border border-alert-200 rounded-xl p-3">
           <p className="text-sm text-alert-700 font-semibold flex items-center gap-1.5">

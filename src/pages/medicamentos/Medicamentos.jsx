@@ -1,21 +1,25 @@
-// src/pages/medicamentos/Medicamentos.jsx
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Pill, Plus, X, Search, Package, Boxes, Pencil, Archive,
-  CheckCircle2, FolderArchive, AlertTriangle, Clock, Loader2
+  CheckCircle2, FolderArchive, AlertTriangle, Clock, Loader2, History
 } from 'lucide-react'
 import { medicamentosService } from '../../services/medicamentosService'
 import useAuthStore from '../../store/authStore'
+import ModalHistorialStock from './ModalHistorialStock'
 
 // ── Helpers ────────────────────────────────────────────────
 function diasParaVencer(fecha) {
   return Math.ceil((new Date(fecha) - new Date()) / (1000 * 60 * 60 * 24))
 }
 
-// Clases reutilizables cálidas
+const OPCIONES_PRINCIPIO = ['Paracetamol', 'Ibuprofeno', 'Amoxicilina', 'Propranolol', 'Metformina', 'Losartán', 'Omeprazol', 'Atorvastatina', 'Salbutamol', 'Enalapril']
+const OPCIONES_TIPO = ['Analgésico', 'Antibiótico', 'Antiinflamatorio', 'Betabloqueante', 'Antidiabético', 'Antihipertensivo', 'Antiácido', 'Broncodilatador', 'Estatina']
+const OPCIONES_FORMA = ['Comprimido', 'Tableta', 'Cápsula', 'Jarabe', 'Ampolla', 'Inyectable', 'Sobre', 'Gotas', 'Crema', 'Supositorio']
+
 const inputCls = "w-full px-3 py-2 border border-cream-400 rounded-xl text-sm bg-warm-50 text-warm-800 focus:outline-none focus:ring-2 focus:ring-warm-400 focus:border-warm-500 transition"
 const inputClsMt = inputCls + " mt-1"
+const inputDisabled = "w-full px-3 py-2 border border-cream-400 rounded-xl text-sm bg-cream-200 text-warm-500 cursor-not-allowed"
 const btnPrimario = "px-4 py-2 bg-gradient-to-br from-warm-600 to-warm-500 text-white rounded-xl text-sm font-semibold shadow-sm hover:shadow-md disabled:opacity-50 transition flex items-center justify-center gap-2"
 const btnSecundario = "px-4 py-2 border border-cream-400 rounded-xl text-warm-600 hover:bg-warm-50 text-sm font-semibold transition"
 
@@ -30,26 +34,85 @@ function BadgeEstado({ estado }) {
   )
 }
 
+// ── Campo select con opción "Otro" ─────────────────────────
+function CampoSelectOtro({ label, valor, opciones, onChange, placeholder, disabled }) {
+  const enLista = opciones.includes(valor)
+  const [modoOtro, setModoOtro] = useState(!!valor && !enLista)
+
+  if (disabled) {
+    return (
+      <div>
+        <label className="block text-sm font-semibold text-warm-700 mb-1.5">{label}</label>
+        <input type="text" value={valor} readOnly disabled className={inputDisabled} />
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <label className="block text-sm font-semibold text-warm-700 mb-1.5">{label}</label>
+      <select
+        value={modoOtro ? 'otro' : valor}
+        onChange={e => {
+          if (e.target.value === 'otro') {
+            setModoOtro(true)
+            onChange('')
+          } else {
+            setModoOtro(false)
+            onChange(e.target.value)
+          }
+        }}
+        className={inputCls + ' cursor-pointer'}>
+        <option value="">Seleccionar…</option>
+        {opciones.map(o => <option key={o} value={o}>{o}</option>)}
+        <option value="otro">Otro…</option>
+      </select>
+      {modoOtro && (
+        <input type="text" value={valor} placeholder={placeholder}
+          onChange={e => onChange(e.target.value)}
+          className={inputClsMt} />
+      )}
+    </div>
+  )
+}
+
 // ════════════════════════════════════════════════════════════
 // MODAL CREAR / EDITAR MEDICAMENTO
 // ════════════════════════════════════════════════════════════
 function ModalMedicamento({ medicamento, onClose, onGuardado }) {
   const esEdicion = !!medicamento
+  const archivado = medicamento?.estado === 'archivado'  // Corrección 1
+
   const [form, setForm] = useState({
     nombre_comercial:   medicamento?.nombre_comercial   || '',
     principio_activo:   medicamento?.principio_activo    || '',
     tipo:               medicamento?.tipo                || '',
     forma_farmaceutica: medicamento?.forma_farmaceutica  || '',
     contraindicaciones: medicamento?.contraindicaciones  || '',
+    observaciones:      medicamento?.observaciones       || '',
   })
   const [error, setError] = useState('')
 
   const mutation = useMutation({
-    mutationFn: (data) => esEdicion
-      ? medicamentosService.editar(medicamento.id, data)
-      : medicamentosService.crear(data),
+    mutationFn: (data) => {
+      // Corrección 1: si está archivado, solo se envían las observaciones
+      const payload = archivado ? { observaciones: data.observaciones } : data
+      return esEdicion
+        ? medicamentosService.editar(medicamento.id, payload)
+        : medicamentosService.crear(payload)
+    },
     onSuccess: () => { onGuardado(); onClose() },
-    onError: (err) => setError(JSON.stringify(err.response?.data?.detalle || 'Error al guardar')),
+    onError: (err) => {
+      const data = err.response?.data
+      setError(
+        data?.error ||
+        data?.nombre_comercial?.[0] ||
+        data?.principio_activo?.[0] ||
+        data?.tipo?.[0] ||
+        data?.forma_farmaceutica?.[0] ||
+        (typeof data === 'string' ? data : 'Error al guardar')
+      )
+    },
   })
 
   return (
@@ -65,26 +128,70 @@ function ModalMedicamento({ medicamento, onClose, onGuardado }) {
           <button onClick={onClose} className="w-8 h-8 rounded-lg text-gray-400 hover:bg-cream-200 hover:text-warm-800 flex items-center justify-center transition"><X size={16} /></button>
         </div>
         <div className="p-5 space-y-4">
-          {[
-            { label: 'Nombre comercial', key: 'nombre_comercial', placeholder: 'Ej: Inderal' },
-            { label: 'Principio activo', key: 'principio_activo', placeholder: 'Ej: Propranolol' },
-            { label: 'Tipo / Categoría',  key: 'tipo', placeholder: 'Ej: Betabloqueante' },
-            { label: 'Forma farmacéutica', key: 'forma_farmaceutica', placeholder: 'Ej: Tableta' },
-          ].map(({ label, key, placeholder }) => (
-            <div key={key}>
-              <label className="block text-sm font-semibold text-warm-700 mb-1.5">{label}</label>
-              <input type="text" value={form[key]} placeholder={placeholder}
-                onChange={e => setForm({ ...form, [key]: e.target.value })}
-                className={inputCls} />
+          {/* Aviso si está archivado */}
+          {archivado && (
+            <div className="bg-gray-100 border border-gray-300 rounded-xl p-3 text-sm text-gray-600 flex items-center gap-2">
+              <FolderArchive size={15} className="shrink-0" />
+              Medicamento archivado: solo se pueden editar las observaciones.
             </div>
-          ))}
+          )}
+
+          <div>
+            <label className="block text-sm font-semibold text-warm-700 mb-1.5">Nombre comercial</label>
+            <input type="text" value={form.nombre_comercial} placeholder="Ej: Inderal"
+              readOnly={archivado} disabled={archivado}
+              onChange={e => setForm({ ...form, nombre_comercial: e.target.value })}
+              className={archivado ? inputDisabled : inputCls} />
+          </div>
+
+          <CampoSelectOtro
+            label="Principio activo"
+            valor={form.principio_activo}
+            opciones={OPCIONES_PRINCIPIO}
+            placeholder="Especifica el principio activo"
+            disabled={archivado}
+            onChange={v => setForm({ ...form, principio_activo: v })}
+          />
+          <CampoSelectOtro
+            label="Tipo / Categoría"
+            valor={form.tipo}
+            opciones={OPCIONES_TIPO}
+            placeholder="Especifica la categoría"
+            disabled={archivado}
+            onChange={v => setForm({ ...form, tipo: v })}
+          />
+          <CampoSelectOtro
+            label="Forma farmacéutica"
+            valor={form.forma_farmaceutica}
+            opciones={OPCIONES_FORMA}
+            placeholder="Especifica la forma"
+            disabled={archivado}
+            onChange={v => setForm({ ...form, forma_farmaceutica: v })}
+          />
+          {esEdicion && !archivado && (
+            <p className="text-[11px] text-warm-400 -mt-2">
+              Al cambiar la forma farmacéutica, la unidad de todos los lotes se actualiza automáticamente.
+            </p>
+          )}
+
           <div>
             <label className="block text-sm font-semibold text-warm-700 mb-1.5">Contraindicaciones</label>
             <textarea rows={3} value={form.contraindicaciones}
+              readOnly={archivado} disabled={archivado}
               placeholder="Ej: Asma bronquial, broncoespasmo..."
               onChange={e => setForm({ ...form, contraindicaciones: e.target.value })}
+              className={archivado ? inputDisabled : inputCls} />
+          </div>
+
+          {/* Observaciones: SIEMPRE editable (corrección 1) */}
+          <div>
+            <label className="block text-sm font-semibold text-warm-700 mb-1.5">Observaciones</label>
+            <textarea rows={2} value={form.observaciones}
+              placeholder="Notas internas sobre el medicamento"
+              onChange={e => setForm({ ...form, observaciones: e.target.value })}
               className={inputCls} />
           </div>
+
           {error && <p className="text-danger-600 text-sm bg-danger-100 p-3 rounded-xl">{error}</p>}
         </div>
         <div className="flex gap-3 p-5 border-t border-cream-400 sticky bottom-0 bg-white">
@@ -104,9 +211,20 @@ function ModalMedicamento({ medicamento, onClose, onGuardado }) {
 function ModalStock({ medicamento, onClose }) {
   const queryClient = useQueryClient()
   const esAdmin = useAuthStore(s => s.usuario)?.rol === 'administrador'
+  const archivado = medicamento.estado === 'archivado'
+
   const [agregando, setAgregando] = useState(false)
+  const [editandoLote, setEditandoLote] = useState(null)
+  const [formEdit, setFormEdit] = useState({ cantidad: '', fecha_vencimiento: '', umbral_minimo: '', lote: '', observaciones: '' })
+
+  const unidadFija = medicamento.forma_farmaceutica || ''
+
   const [form, setForm] = useState({
-    cantidad: '', unidad: 'comprimidos', fecha_vencimiento: '', umbral_minimo: '', lote: ''
+    cantidad: '',
+    fecha_vencimiento: '',
+    umbral_minimo: '',
+    lote: '',
+    observaciones: '',
   })
   const [error, setError] = useState('')
 
@@ -120,14 +238,68 @@ function ModalStock({ medicamento, onClose }) {
     onSuccess: () => {
       queryClient.invalidateQueries(['stock', medicamento.id])
       queryClient.invalidateQueries(['alertas-stock'])
+      queryClient.invalidateQueries(['movimientos', medicamento.id])
       setAgregando(false)
-      setForm({ cantidad: '', unidad: 'comprimidos', fecha_vencimiento: '', umbral_minimo: '', lote: '' })
+      setForm({ cantidad: '', fecha_vencimiento: '', umbral_minimo: '', lote: '', observaciones: '' })
       setError('')
     },
-    onError: (err) => setError(
-      err.response?.data?.detalle?.error || JSON.stringify(err.response?.data?.detalle || 'Error al agregar lote')
-    ),
+    onError: (err) => {
+      const data = err.response?.data
+      const msg = data?.error || data?.fecha_vencimiento?.[0] || data?.cantidad?.[0] || data?.non_field_errors?.[0] || 'Error al agregar lote'
+      setError(msg)
+    },
   })
+
+  const mutEditar = useMutation({
+    mutationFn: ({ loteId, data }) =>
+      medicamentosService.actualizarLote(medicamento.id, loteId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['stock', medicamento.id])
+      queryClient.invalidateQueries(['alertas-stock'])
+      queryClient.invalidateQueries(['movimientos', medicamento.id])
+      setEditandoLote(null)
+      setError('')
+    },
+    onError: (err) => {
+      const data = err.response?.data
+      setError(
+        data?.error ||
+        data?.cantidad?.[0] ||
+        data?.fecha_vencimiento?.[0] ||
+        data?.umbral_minimo?.[0] ||
+        'Error al editar el lote'
+      )
+    },
+  })
+
+  const abrirEdicion = (lote) => {
+    setError('')
+    setEditandoLote(lote.id)
+    setFormEdit({
+      cantidad: String(lote.cantidad),
+      fecha_vencimiento: lote.fecha_vencimiento,
+      umbral_minimo: String(lote.umbral_minimo),
+      lote: lote.lote,
+      observaciones: lote.observaciones || '',
+    })
+  }
+
+  const guardarEdicion = (loteId) => {
+    if (archivado) {
+      mutEditar.mutate({ loteId, data: { observaciones: formEdit.observaciones } })
+      return
+    }
+    mutEditar.mutate({
+      loteId,
+      data: {
+        cantidad: Number(formEdit.cantidad),
+        fecha_vencimiento: formEdit.fecha_vencimiento,
+        umbral_minimo: Number(formEdit.umbral_minimo),
+        lote: formEdit.lote,
+        observaciones: formEdit.observaciones,
+      },
+    })
+  }
 
   return (
     <div onClick={onClose} className="fixed inset-0 bg-[rgba(60,26,10,0.45)] backdrop-blur-sm flex items-center justify-center z-[9999] p-4" style={{ animation: 'fadeIn 0.18s ease' }}>
@@ -138,32 +310,39 @@ function ModalStock({ medicamento, onClose }) {
           </div>
           <div className="flex-1">
             <h2 className="text-base font-bold text-warm-800">Stock por lotes</h2>
-            <p className="text-sm text-warm-500">{medicamento.nombre_comercial}</p>
+            <p className="text-sm text-warm-500">{medicamento.nombre_comercial} · unidad: {unidadFija || '—'}</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-lg text-gray-400 hover:bg-cream-200 hover:text-warm-800 flex items-center justify-center transition"><X size={16} /></button>
         </div>
 
         <div className="p-5 space-y-4">
-          {esAdmin && !agregando && (
+          {archivado && (
+            <div className="bg-gray-100 border border-gray-300 rounded-xl p-3 text-sm text-gray-600 flex items-center gap-2">
+              <FolderArchive size={15} className="shrink-0" />
+              Medicamento archivado: solo se pueden editar las observaciones de cada lote.
+            </div>
+          )}
+
+          {esAdmin && !archivado && !agregando && (
             <button onClick={() => setAgregando(true)}
               className="text-sm text-warm-600 hover:text-warm-800 font-semibold inline-flex items-center gap-1 transition">
               <Plus size={14} /> Agregar lote
             </button>
           )}
 
-          {/* Formulario nuevo lote */}
           {agregando && (
             <div className="bg-warm-50 border border-cream-400 rounded-xl p-4 space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-warm-500 uppercase">Cantidad</label>
-                  <input type="number" value={form.cantidad}
+                  <input type="number" min="1" value={form.cantidad}
                     onChange={e => setForm({ ...form, cantidad: e.target.value })} className={inputClsMt} />
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-warm-500 uppercase">Unidad</label>
-                  <input type="text" value={form.unidad}
-                    onChange={e => setForm({ ...form, unidad: e.target.value })} className={inputClsMt} />
+                  <input type="text" value={unidadFija} readOnly disabled
+                    className={inputClsMt + ' bg-cream-200 text-warm-500 cursor-not-allowed'} />
+                  <p className="text-[11px] text-warm-400 mt-1">Definida por la forma farmacéutica.</p>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-warm-500 uppercase">Vencimiento</label>
@@ -181,6 +360,11 @@ function ModalStock({ medicamento, onClose }) {
                 <input type="text" value={form.lote} placeholder="Ej: LOTE-2026-001"
                   onChange={e => setForm({ ...form, lote: e.target.value })} className={inputClsMt} />
               </div>
+              <div>
+                <label className="text-xs font-semibold text-warm-500 uppercase">Observaciones</label>
+                <textarea rows={2} value={form.observaciones} placeholder="Opcional"
+                  onChange={e => setForm({ ...form, observaciones: e.target.value })} className={inputClsMt} />
+              </div>
               {error && <p className="text-danger-600 text-sm bg-danger-100 p-3 rounded-xl">{error}</p>}
               <div className="flex gap-2">
                 <button onClick={() => { setAgregando(false); setError('') }} className={`flex-1 ${btnSecundario}`}>Cancelar</button>
@@ -191,7 +375,6 @@ function ModalStock({ medicamento, onClose }) {
             </div>
           )}
 
-          {/* Lista de lotes */}
           {isLoading ? (
             <p className="text-sm text-warm-500 text-center py-6">Cargando lotes...</p>
           ) : lotes?.length === 0 ? (
@@ -202,6 +385,10 @@ function ModalStock({ medicamento, onClose }) {
                 const dias = diasParaVencer(lote.fecha_vencimiento)
                 const stockBajo = lote.cantidad <= lote.umbral_minimo
                 const porVencer = dias <= 30
+                const puedeEditarTodo = esAdmin && !archivado && !lote.tiene_administraciones
+                const puedeEditarObs = archivado
+                const mostrarEditar = puedeEditarTodo || puedeEditarObs
+
                 return (
                   <div key={lote.id} className="border border-cream-400 rounded-xl p-3 bg-white">
                     <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
@@ -213,11 +400,75 @@ function ModalStock({ medicamento, onClose }) {
                         {porVencer && <span className="text-xs bg-alert-100 text-alert-600 px-2 py-0.5 rounded-full inline-flex items-center gap-1"><Clock size={11} /> Por vencer</span>}
                       </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 text-xs text-warm-600">
-                      <div><span className="text-warm-400">Cantidad:</span> {lote.cantidad} {lote.unidad}</div>
-                      <div><span className="text-warm-400">Umbral:</span> {lote.umbral_minimo}</div>
-                      <div><span className="text-warm-400">Vence:</span> {lote.fecha_vencimiento}</div>
-                    </div>
+
+                    {editandoLote === lote.id ? (
+                      <div className="mt-2 pt-3 border-t border-cream-200 space-y-3">
+                        {!archivado && (
+                          <>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-xs font-semibold text-warm-500 uppercase">Cantidad</label>
+                                <input type="number" min="1" value={formEdit.cantidad}
+                                  onChange={e => setFormEdit({ ...formEdit, cantidad: e.target.value })} className={inputClsMt} />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-warm-500 uppercase">Unidad</label>
+                                <input type="text" value={unidadFija} readOnly disabled
+                                  className={inputClsMt + ' bg-cream-200 text-warm-500 cursor-not-allowed'} />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-warm-500 uppercase">Vencimiento</label>
+                                <input type="date" value={formEdit.fecha_vencimiento}
+                                  onChange={e => setFormEdit({ ...formEdit, fecha_vencimiento: e.target.value })} className={inputClsMt} />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-warm-500 uppercase">Umbral mínimo</label>
+                                <input type="number" value={formEdit.umbral_minimo}
+                                  onChange={e => setFormEdit({ ...formEdit, umbral_minimo: e.target.value })} className={inputClsMt} />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-xs font-semibold text-warm-500 uppercase">Número de lote</label>
+                              <input type="text" value={formEdit.lote}
+                                onChange={e => setFormEdit({ ...formEdit, lote: e.target.value })} className={inputClsMt} />
+                            </div>
+                          </>
+                        )}
+                        <div>
+                          <label className="text-xs font-semibold text-warm-500 uppercase">Observaciones</label>
+                          <textarea rows={2} value={formEdit.observaciones} placeholder="Opcional"
+                            onChange={e => setFormEdit({ ...formEdit, observaciones: e.target.value })} className={inputClsMt} />
+                        </div>
+                        {error && <p className="text-danger-600 text-sm bg-danger-100 p-3 rounded-xl">{error}</p>}
+                        <div className="flex gap-2">
+                          <button onClick={() => { setEditandoLote(null); setError('') }} className={`flex-1 ${btnSecundario}`}>Cancelar</button>
+                          <button onClick={() => guardarEdicion(lote.id)} disabled={mutEditar.isPending} className={`flex-1 ${btnPrimario}`}>
+                            {mutEditar.isPending ? <><Loader2 size={15} className="animate-spin" /> Guardando…</> : 'Guardar cambios'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-3 gap-2 text-xs text-warm-600">
+                          <div><span className="text-warm-400">Cantidad:</span> {lote.cantidad} {lote.unidad}</div>
+                          <div><span className="text-warm-400">Umbral:</span> {lote.umbral_minimo}</div>
+                          <div><span className="text-warm-400">Vence:</span> {lote.fecha_vencimiento}</div>
+                        </div>
+                        {lote.observaciones && (
+                          <p className="text-xs text-warm-500 mt-1.5 italic">Obs: {lote.observaciones}</p>
+                        )}
+
+                        {mostrarEditar ? (
+                          <button
+                            onClick={() => abrirEdicion(lote)}
+                            className="text-xs font-semibold text-warm-600 hover:text-warm-800 mt-2 inline-flex items-center gap-1">
+                            <Pencil size={12} /> {archivado ? 'Editar observaciones' : 'Editar lote'}
+                          </button>
+                        ) : esAdmin && lote.tiene_administraciones ? (
+                          <p className="text-[11px] text-warm-400 mt-2 italic">No editable: ya tiene medicamentos administrados.</p>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 )
               })}
@@ -240,6 +491,7 @@ export default function Medicamentos() {
   const [filtroEstado, setFiltroEstado] = useState('activo')
   const [modalMed, setModalMed] = useState(null)
   const [modalStock, setModalStock] = useState(null)
+  const [modalHistorial, setModalHistorial] = useState(null)
 
   const { data: medicamentos, isLoading } = useQuery({
     queryKey: ['medicamentos'],
@@ -256,19 +508,16 @@ export default function Medicamentos() {
     onSuccess: () => queryClient.invalidateQueries(['medicamentos']),
   })
 
-  // Filtrado + Ordenamiento (activos primero)
+  // El orden viene del backend (-updated_at). Aquí solo búsqueda + filtro de estado.
   const filtrados = medicamentos
     ?.filter(m => {
       if (filtroEstado === 'activo' && m.estado !== 'activo') return false
+      if (filtroEstado === 'archivado' && m.estado !== 'archivado') return false  // Corrección 2
       if (!busqueda) return true
       return (
         m.nombre_comercial.toLowerCase().includes(busqueda.toLowerCase()) ||
         m.principio_activo.toLowerCase().includes(busqueda.toLowerCase())
       )
-    })
-    ?.sort((a, b) => {
-      if (a.estado === b.estado) return 0
-      return a.estado === 'activo' ? -1 : 1
     })
 
   return (
@@ -320,6 +569,7 @@ export default function Medicamentos() {
         <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}
           className={`${inputCls} cursor-pointer min-w-40 flex-none`}>
           <option value="activo">Solo activos</option>
+          <option value="archivado">Solo archivados</option>
           <option value="todos">Todos</option>
         </select>
       </div>
@@ -364,7 +614,13 @@ export default function Medicamentos() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
                           <button onClick={() => setModalStock(m)}
-                            className="text-warm-600 hover:text-warm-800 text-sm font-semibold inline-flex items-center gap-1 transition"><Boxes size={14} /> Stock</button>
+                            className="text-warm-600 hover:text-warm-800 text-sm font-semibold inline-flex items-center gap-1 transition">
+                            <Boxes size={14} /> Stock
+                          </button>
+                          <button onClick={() => setModalHistorial(m)}
+                            className="text-warm-500 hover:text-warm-700 text-sm font-semibold inline-flex items-center gap-1 transition">
+                            <History size={13} /> Historial
+                          </button>
                           {esAdmin && (
                             <>
                               <button onClick={() => setModalMed(m)}
@@ -404,6 +660,7 @@ export default function Medicamentos() {
                   <p className="text-sm text-warm-600 mb-3"><span className="text-warm-400">Principio activo:</span> {m.principio_activo}</p>
                   <div className="flex items-center gap-3 flex-wrap pt-3 border-t border-warm-50">
                     <button onClick={() => setModalStock(m)} className="text-warm-600 text-sm font-semibold inline-flex items-center gap-1"><Boxes size={14} /> Stock</button>
+                    <button onClick={() => setModalHistorial(m)} className="text-warm-500 text-sm font-semibold inline-flex items-center gap-1"><History size={13} /> Historial</button>
                     {esAdmin && (
                       <>
                         <button onClick={() => setModalMed(m)} className="text-warm-500 text-sm font-semibold inline-flex items-center gap-1"><Pencil size={13} /> Editar</button>
@@ -430,6 +687,9 @@ export default function Medicamentos() {
       )}
       {modalStock && (
         <ModalStock medicamento={modalStock} onClose={() => setModalStock(null)} />
+      )}
+      {modalHistorial && (
+        <ModalHistorialStock medicamento={modalHistorial} onClose={() => setModalHistorial(null)} />
       )}
 
       <style>{`

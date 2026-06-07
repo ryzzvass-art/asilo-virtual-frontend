@@ -2,15 +2,29 @@ import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { medicamentosService } from '../../services/medicamentosService'
 
-export default function ModalPrescribir({ residenteId, onClose, onGuardado }) {
-  const [form, setForm] = useState({
-    medicamento: '',
-    dosis: '',
-    via_administracion: 'oral',
-    horarios: [''],
-    fecha_inicio: new Date().toISOString().split('T')[0],
-    fecha_fin: '',
-  })
+export default function ModalPrescribir({ residenteId, prescripcionInicial = null, onClose, onGuardado }) {
+  // Modo edición si recibimos una prescripción existente
+  const esEdicion = !!prescripcionInicial
+
+  const [form, setForm] = useState(
+    esEdicion
+      ? {
+          medicamento: String(prescripcionInicial.medicamento),
+          dosis: prescripcionInicial.dosis || '',
+          via_administracion: prescripcionInicial.via_administracion || 'oral',
+          horarios: prescripcionInicial.horarios?.length ? [...prescripcionInicial.horarios] : [''],
+          fecha_inicio: prescripcionInicial.fecha_inicio || new Date().toISOString().split('T')[0],
+          fecha_fin: prescripcionInicial.fecha_fin || '',
+        }
+      : {
+          medicamento: '',
+          dosis: '',
+          via_administracion: 'oral',
+          horarios: [''],
+          fecha_inicio: new Date().toISOString().split('T')[0],
+          fecha_fin: '',
+        }
+  )
   const [error, setError] = useState('')
 
   const { data: medicamentos } = useQuery({
@@ -19,12 +33,22 @@ export default function ModalPrescribir({ residenteId, onClose, onGuardado }) {
   })
 
   const mutation = useMutation({
-    mutationFn: (data) => medicamentosService.crearPrescripcion(residenteId, data),
+    mutationFn: (data) =>
+      esEdicion
+        ? medicamentosService.editarPrescripcion(residenteId, prescripcionInicial.id, data)
+        : medicamentosService.crearPrescripcion(residenteId, data),
     onSuccess: () => { onGuardado(); onClose() },
-    onError: (err) => setError(
-      err.response?.data?.detalle?.error ||
-      JSON.stringify(err.response?.data?.detalle || 'Error al prescribir')
-    ),
+    onError: (err) => {
+      // Lee el error donde el backend realmente lo manda (data.error o por campo)
+      const data = err.response?.data
+      setError(
+        data?.error ||
+        data?.horarios?.[0] ||
+        data?.dosis?.[0] ||
+        data?.non_field_errors?.[0] ||
+        (typeof data === 'string' ? data : 'Error al guardar la prescripción')
+      )
+    },
   })
 
   const actualizarHorario = (i, valor) => {
@@ -36,7 +60,12 @@ export default function ModalPrescribir({ residenteId, onClose, onGuardado }) {
   const quitarHorario = (i) => setForm({ ...form, horarios: form.horarios.filter((_, idx) => idx !== i) })
 
   const guardar = () => {
+    setError('')
     const horariosLimpios = form.horarios.filter(h => h.trim() !== '')
+    if (horariosLimpios.length === 0) {
+      setError('Debes indicar al menos un horario de toma')
+      return
+    }
     mutation.mutate({ ...form, horarios: horariosLimpios, fecha_fin: form.fecha_fin || null })
   }
 
@@ -44,20 +73,26 @@ export default function ModalPrescribir({ residenteId, onClose, onGuardado }) {
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b sticky top-0 bg-white">
-          <h2 className="text-lg font-bold text-gray-800">💊 Prescribir medicamento</h2>
+          <h2 className="text-lg font-bold text-gray-800">
+            💊 {esEdicion ? 'Editar prescripción' : 'Prescribir medicamento'}
+          </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
         </div>
         <div className="p-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Medicamento</label>
             <select value={form.medicamento}
+              disabled={esEdicion}
               onChange={e => setForm({ ...form, medicamento: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500">
               <option value="">Seleccionar del catálogo...</option>
               {medicamentos?.map(m => (
                 <option key={m.id} value={m.id}>{m.nombre_comercial} ({m.principio_activo})</option>
               ))}
             </select>
+            {esEdicion && (
+              <p className="text-xs text-gray-400 mt-1">El medicamento no se puede cambiar al editar.</p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -117,7 +152,7 @@ export default function ModalPrescribir({ residenteId, onClose, onGuardado }) {
             className="flex-1 px-4 py-2 border border-gray-200 rounded-xl text-gray-600 text-sm">Cancelar</button>
           <button onClick={guardar} disabled={mutation.isPending || !form.medicamento}
             className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm disabled:opacity-50">
-            {mutation.isPending ? 'Guardando...' : 'Prescribir'}
+            {mutation.isPending ? 'Guardando...' : (esEdicion ? 'Guardar cambios' : 'Prescribir')}
           </button>
         </div>
       </div>

@@ -148,12 +148,153 @@ function ModalCrearUsuario({ onClose, onGuardado }) {
   )
 }
 
+/* ── Modal editar ───────────────────────────────────────────── */
+function ModalEditarUsuario({ usuarioObjetivo, usuarioActual, onClose, onGuardado }) {
+  // Reglas de UI derivadas de las del backend:
+  const esYoMismo   = usuarioObjetivo.id === usuarioActual?.id
+  const esCuidador  = usuarioObjetivo.rol === 'cuidador'
+  // El password solo se puede cambiar si te editas a ti mismo.
+  const puedeCambiarPassword = esYoMismo
+  // El rol solo es editable si NO te estás editando a ti mismo.
+  const puedeCambiarRol = !esYoMismo
+
+  const [form, setForm] = useState({
+    nombre: usuarioObjetivo.nombre,
+    apellido: usuarioObjetivo.apellido,
+    email: usuarioObjetivo.email,
+    rol: usuarioObjetivo.rol,
+    password: '',
+  })
+  const [error, setError] = useState('')
+  const [focus, setFocus] = useState(null)
+
+  const mutation = useMutation({
+    mutationFn: (data) => usuariosService.editar(usuarioObjetivo.id, data),
+    onSuccess: () => { onGuardado(); onClose() },
+    onError: (err) => {
+      const d = err.response?.data
+      setError(typeof d === 'string' ? d : (d?.detail || JSON.stringify(d) || 'Error al editar'))
+    },
+  })
+
+  const guardar = () => {
+    // Armamos solo los campos que este editor tiene permitido enviar.
+    const data = { nombre: form.nombre, apellido: form.apellido, email: form.email }
+    if (puedeCambiarRol) data.rol = form.rol
+    if (puedeCambiarPassword && form.password.trim()) data.password = form.password
+    mutation.mutate(data)
+  }
+
+  const inputStyle = (key) => ({
+    width: '100%', padding: '10px 12px',
+    border: `1.5px solid ${focus === key ? P.warm500 : P.cream400}`,
+    borderRadius: '10px', fontSize: '14px', color: P.warm800,
+    background: focus === key ? '#FFFAF5' : P.warm50,
+    outline: 'none', transition: 'all 0.18s ease',
+    boxShadow: focus === key ? `0 0 0 3px ${P.warm200}` : 'none',
+    boxSizing: 'border-box',
+  })
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(60,26,10,0.45)', backdropFilter: 'blur(3px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '16px',
+      animation: 'fadeIn 0.18s ease',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: 'white', borderRadius: '22px', boxShadow: '0 24px 64px rgba(60,26,10,0.28)',
+        width: '100%', maxWidth: '440px', overflow: 'hidden',
+        animation: 'modalPop 0.24s cubic-bezier(0.34,1.56,0.64,1)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '20px 24px', borderBottom: `1px solid ${P.cream400}`, background: P.warm50 }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'linear-gradient(135deg, #A0522D, #C87941)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <UserPlus size={20} color="white" />
+          </div>
+          <h2 style={{ fontSize: '17px', fontWeight: 700, color: P.warm800, margin: 0, flex: 1 }}>Editar Usuario</h2>
+          <button onClick={onClose} style={{ width: '32px', height: '32px', borderRadius: '9px', border: 'none', background: 'transparent', cursor: 'pointer', color: '#9CA3AF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {[
+            { label: 'Nombre',   key: 'nombre',   type: 'text' },
+            { label: 'Apellido', key: 'apellido', type: 'text' },
+            { label: 'Email',    key: 'email',    type: 'email' },
+          ].map(({ label, key, type }) => (
+            <div key={key}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: P.warm700, marginBottom: '6px' }}>{label}</label>
+              <input type={type} value={form[key]}
+                onChange={e => setForm({ ...form, [key]: e.target.value })}
+                onFocus={() => setFocus(key)} onBlur={() => setFocus(null)}
+                style={inputStyle(key)} />
+            </div>
+          ))}
+
+          {/* Rol: editable solo si NO es el propio usuario */}
+          <div>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: P.warm700, marginBottom: '6px' }}>Rol</label>
+            {puedeCambiarRol ? (
+              <select value={form.rol}
+                onChange={e => setForm({ ...form, rol: e.target.value })}
+                onFocus={() => setFocus('rol')} onBlur={() => setFocus(null)}
+                style={{ ...inputStyle('rol'), cursor: 'pointer' }}>
+                <option value="cuidador">Cuidador</option>
+                <option value="administrador">Administrador</option>
+              </select>
+            ) : (
+              <p style={{ fontSize: '13px', color: '#9CA3AF', margin: 0, padding: '10px 12px', background: P.warm50, borderRadius: '10px' }}>
+                {form.rol === 'administrador' ? 'Administrador' : 'Cuidador'} — no puedes cambiar tu propio rol.
+              </p>
+            )}
+          </div>
+
+          {/* Password: solo si te editas a ti mismo */}
+          {puedeCambiarPassword ? (
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: P.warm700, marginBottom: '6px' }}>
+                Nueva contraseña <span style={{ fontWeight: 400, color: '#9CA3AF' }}>(dejar vacío para no cambiarla)</span>
+              </label>
+              <input type="password" value={form.password}
+                onChange={e => setForm({ ...form, password: e.target.value })}
+                onFocus={() => setFocus('password')} onBlur={() => setFocus(null)}
+                style={inputStyle('password')} placeholder="••••••••" />
+            </div>
+          ) : esCuidador && (
+            <p style={{ fontSize: '12px', color: '#9CA3AF', margin: 0 }}>
+              La contraseña de un cuidador solo puede cambiarla el propio cuidador (vía recuperar contraseña).
+            </p>
+          )}
+
+          {error && (
+            <p style={{ fontSize: '13px', color: P.danger600, background: P.danger100, padding: '10px 12px', borderRadius: '10px', margin: 0 }}>{error}</p>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: '12px', padding: '16px 24px', borderTop: `1px solid ${P.cream400}` }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '11px', borderRadius: '11px', border: `1.5px solid ${P.cream400}`, background: 'white', color: P.warm600, fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={guardar} disabled={mutation.isPending} style={{
+            flex: 1, padding: '11px', borderRadius: '11px', border: 'none',
+            background: mutation.isPending ? '#E8C4A0' : 'linear-gradient(135deg, #A0522D, #C87941)',
+            color: 'white', fontSize: '14px', fontWeight: 600,
+            cursor: mutation.isPending ? 'not-allowed' : 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
+          }}>
+            {mutation.isPending ? <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Guardando…</> : 'Guardar cambios'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Página principal ───────────────────────────────────────── */
 export default function Usuarios() {
   const queryClient = useQueryClient()
   const { usuario } = useAuthStore()
   const esAdmin = usuario?.rol === 'administrador'
   const [modalCrear, setModalCrear] = useState(false)
+  const [editando, setEditando] = useState(null)   // ← nuevo: usuario a editar
 
   const { data: usuarios, isLoading } = useQuery({
     queryKey: ['usuarios'],
@@ -178,6 +319,25 @@ export default function Usuarios() {
   )
 
   const fmtFecha = f => new Date(f).toLocaleDateString('es-BO')
+
+  const puedeEditar = (u) => u.id === usuario?.id || u.rol === 'cuidador'
+
+  const BotonEditar = ({ u }) => (
+    puedeEditar(u) && (
+      <button
+        onClick={() => setEditando(u)}
+        style={{
+          fontSize: '12px', fontWeight: 600, padding: '5px 12px', borderRadius: '9px',
+          border: `1px solid ${P.warm400}`, cursor: 'pointer', marginRight: '8px',
+          background: P.warm50, color: P.warm700, transition: 'all 0.15s',
+        }}
+        onMouseEnter={e => e.currentTarget.style.background = P.warm100}
+        onMouseLeave={e => e.currentTarget.style.background = P.warm50}
+      >
+        Editar
+      </button>
+    )
+  )
 
   const BotonEstado = ({ u }) => (
     u.id !== usuario?.id && (
@@ -268,7 +428,10 @@ export default function Usuarios() {
                     <td style={{ padding: '14px 24px' }}><BadgeRol rol={u.rol} /></td>
                     <td style={{ padding: '14px 24px' }}><BadgeEstado estado={u.estado} /></td>
                     <td style={{ padding: '14px 24px', fontSize: '13px', color: '#9CA3AF' }}>{fmtFecha(u.created_at)}</td>
-                    <td style={{ padding: '14px 24px' }}><BotonEstado u={u} /></td>
+                    <td style={{ padding: '14px 24px' }}>
+                      <BotonEditar u={u} />
+                      <BotonEstado u={u} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -298,9 +461,10 @@ export default function Usuarios() {
                   <BadgeEstado estado={u.estado} />
                   <span style={{ fontSize: '11px', color: '#9CA3AF', marginLeft: 'auto' }}>{fmtFecha(u.created_at)}</span>
                 </div>
-                {u.id !== usuario?.id && (
-                  <div style={{ marginTop: '12px' }}><BotonEstado u={u} /></div>
-                )}
+                <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <BotonEditar u={u} />
+                  {u.id !== usuario?.id && <BotonEstado u={u} />}
+                </div>
               </div>
             ))}
           </div>
@@ -309,6 +473,15 @@ export default function Usuarios() {
 
       {modalCrear && (
         <ModalCrearUsuario onClose={() => setModalCrear(false)} onGuardado={() => queryClient.invalidateQueries(['usuarios'])} />
+      )}
+
+      {editando && (
+        <ModalEditarUsuario
+          usuarioObjetivo={editando}
+          usuarioActual={usuario}
+          onClose={() => setEditando(null)}
+          onGuardado={() => queryClient.invalidateQueries(['usuarios'])}
+        />
       )}
 
       <style>{`

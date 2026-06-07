@@ -13,6 +13,9 @@ export const medicamentosService = {
   agregarLote:    (id, data)      => api.post(`/medicamentos/${id}/stock/`, data).then(r => r.data),
   actualizarLote: (id, loteId, data) =>
     api.patch(`/medicamentos/${id}/stock/${loteId}/`, data).then(r => r.data),
+  // Historial de movimientos (trazabilidad)
+  historialMovimientos: (id, params) =>
+    api.get(`/medicamentos/${id}/movimientos/`, { params }).then(r => r.data),
 
   // Alertas
   alertasStock: () => api.get('/alertas/stock/').then(r => r.data),

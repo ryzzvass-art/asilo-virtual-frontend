@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, ChevronDown, User, Phone, Stethoscope, Salad,
   Pill, Users, Pencil, CheckCircle2, BedDouble, FolderArchive,
-  Ban, AlertTriangle, UtensilsCrossed, ClipboardList, Mail, Plus
+  Ban, AlertTriangle, UtensilsCrossed, ClipboardList, Mail, Plus, Activity
 } from 'lucide-react'
 import { residentesService } from '../../services/residentesService'
 import { visitantesService } from '../../services/visitantesService'
@@ -17,6 +17,10 @@ import ModalTomas from './ModalTomas'
 import ModalHistorialTomas from './ModalHistorialTomas'
 import ModalRestricciones from './ModalRestricciones'
 import ModalPlanNutricional from './ModalPlanNutricional'
+import ActividadesDelResidente from './ActividadesDelResidente'
+import SeccionObservaciones from './SeccionObservaciones'
+import SeccionTurnos from './SeccionTurnos'
+
 
 // ── Componentes pequeños ───────────────────────────────────
 function BadgeEstado({ estado }) {
@@ -86,15 +90,20 @@ export default function ResidenteDetalle() {
   const [formContacto, setFormContacto] = useState({})
   const [creandoContacto, setCreandoContacto] = useState(false)
   const [formNuevoContacto, setFormNuevoContacto] = useState({
-    tipo: 'familiar', nombre: '', relacion_cargo: '', telefono: '', email: ''
+    tipo: 'familiar', nombre: '', dni: '', relacion_cargo: '', telefono: '', email: ''
   })
   const [errorContacto, setErrorContacto] = useState('')
+  const [errorDatos, setErrorDatos] = useState('')
+
   const [modalAutorizarVisitante, setModalAutorizarVisitante] = useState(false)
   const [modalPrescribir, setModalPrescribir] = useState(false)
   const [modalTomas, setModalTomas] = useState(null)
   const [modalHistorialTomas, setModalHistorialTomas] = useState(false)
   const [modalRestricciones, setModalRestricciones] = useState(false)
   const [modalPlan, setModalPlan] = useState(false)
+  const [filtroPrescripciones, setFiltroPrescripciones] = useState('activo')
+  const [buscarPrescripcion, setBuscarPrescripcion] = useState('')
+  const [modalEditarPrescripcion, setModalEditarPrescripcion] = useState(null)
 
   // ── Queries ──
   const { data: residente, isLoading } = useQuery({
@@ -137,7 +146,11 @@ export default function ResidenteDetalle() {
   })
   const mutacionEditar = useMutation({
     mutationFn: (data) => residentesService.editar(id, data),
-    onSuccess: () => { queryClient.invalidateQueries(['residente', id]); setEditandoDatos(false) },
+    onSuccess: () => { queryClient.invalidateQueries(['residente', id]); setEditandoDatos(false); setErrorDatos('') },
+    onError: (err) => {
+      const d = err.response?.data
+      setErrorDatos(d?.dni?.[0] || d?.error || 'No se pudieron guardar los cambios.')
+    },
   })
   const mutacionEditarContacto = useMutation({
     mutationFn: ({ cid, data }) => residentesService.editarContacto(id, cid, data),
@@ -149,7 +162,7 @@ export default function ResidenteDetalle() {
       queryClient.invalidateQueries(['contactos', id])
       setCreandoContacto(false)
       setErrorContacto('')
-      setFormNuevoContacto({ tipo: 'familiar', nombre: '', relacion_cargo: '', telefono: '', email: '' })
+      setFormNuevoContacto({ tipo: 'familiar', nombre: '', dni: '', relacion_cargo: '', telefono: '', email: '' })
     },
     onError: (err) => {
       const detalle = err.response?.data?.detalle || err.response?.data
@@ -225,6 +238,7 @@ export default function ResidenteDetalle() {
               {[
                 { label: 'Nombre', key: 'nombre', type: 'text' },
                 { label: 'Apellido completo', key: 'apellido', type: 'text' },
+                { label: 'C.I.', key: 'dni', type: 'text' },
                 { label: 'Fecha nacimiento', key: 'fecha_nacimiento', type: 'date' },
                 { label: 'Fecha ingreso', key: 'fecha_ingreso', type: 'date' },
               ].map(({ label, key, type }) => (
@@ -235,8 +249,9 @@ export default function ResidenteDetalle() {
                     className={inputCls} />
                 </div>
               ))}
+              {errorDatos && <p className="text-danger-600 text-sm bg-danger-100 p-3 rounded-xl">{errorDatos}</p>}
               <div className="flex gap-2 pt-2">
-                <button onClick={() => setEditandoDatos(false)} className={`flex-1 ${btnSecundario}`}>Cancelar</button>
+                <button onClick={() => { setEditandoDatos(false); setErrorDatos('') }} className={`flex-1 ${btnSecundario}`}>Cancelar</button>
                 <button onClick={() => mutacionEditar.mutate(formDatos)} disabled={mutacionEditar.isPending}
                   className={`flex-1 ${btnPrimario}`}>
                   {mutacionEditar.isPending ? 'Guardando...' : 'Guardar'}
@@ -278,6 +293,7 @@ export default function ResidenteDetalle() {
               </div>
               {[
                 { label: 'Nombre', key: 'nombre', type: 'text' },
+                { label: 'C.I.', key: 'dni', type: 'text' },
                 { label: 'Relación/Cargo', key: 'relacion_cargo', type: 'text' },
                 { label: 'Teléfono', key: 'telefono', type: 'text' },
                 { label: 'Email', key: 'email', type: 'email' },
@@ -309,6 +325,7 @@ export default function ResidenteDetalle() {
                     <div className="space-y-3">
                       {[
                         { label: 'Nombre', key: 'nombre', type: 'text' },
+                        { label: 'C.I.', key: 'dni', type: 'text' },
                         { label: 'Relación/Cargo', key: 'relacion_cargo', type: 'text' },
                         { label: 'Teléfono', key: 'telefono', type: 'text' },
                         { label: 'Email', key: 'email', type: 'email' },
@@ -342,6 +359,7 @@ export default function ResidenteDetalle() {
                       </div>
                       <p className="font-semibold text-warm-800 text-sm">{c.nombre}</p>
                       <p className="text-xs text-warm-500">{c.relacion_cargo}</p>
+                      {c.dni && <p className="text-xs text-warm-500">C.I.: {c.dni}</p>}
                       <p className="text-xs text-warm-600 mt-1 inline-flex items-center gap-1.5"><Phone size={12} /> {c.telefono}</p>
                       {c.email && <p className="text-xs text-warm-600 inline-flex items-center gap-1.5"><Mail size={12} /> {c.email}</p>}
                     </div>
@@ -360,6 +378,7 @@ export default function ResidenteDetalle() {
                 { label: 'Diagnósticos', key: 'diagnosticos' },
                 { label: 'Alergias', key: 'alergias' },
                 { label: 'Condiciones crónicas', key: 'condiciones_cronicas' },
+                { label: 'Tratamiento (médico de cabecera)', key: 'tratamiento' },
               ].map(({ label, key }) => (
                 <div key={key}>
                   <label className="text-xs font-semibold text-warm-500 uppercase">{label}</label>
@@ -381,11 +400,22 @@ export default function ResidenteDetalle() {
               <CampoInfo label="Diagnósticos" valor={historial?.diagnosticos} />
               <CampoInfo label="Alergias" valor={historial?.alergias} />
               <CampoInfo label="Condiciones crónicas" valor={historial?.condiciones_cronicas} />
+              <CampoInfo label="Tratamiento (médico de cabecera)" valor={historial?.tratamiento} />
               {esAdmin && (
                 <button onClick={() => setEditandoHistorial(true)} className={`mt-2 ${btnLink}`}><Pencil size={14} /> Editar historial</button>
               )}
             </div>
           )}
+        </SeccionCard>
+
+        {/* ── Observaciones diarias ── */}
+        <SeccionCard titulo="Observaciones diarias" icono={ClipboardList}>
+          <SeccionObservaciones residenteId={id} />
+        </SeccionCard>
+
+        {/* ── Turnos médicos ── */}
+        <SeccionCard titulo="Turnos médicos" icono={Stethoscope}>
+          <SeccionTurnos residenteId={id} />
         </SeccionCard>
 
         {/* ── Restricciones alimentarias ── */}
@@ -429,49 +459,101 @@ export default function ResidenteDetalle() {
             </button>
           </div>
 
-          {/* Activas */}
-          {prescripciones?.filter(p => p.estado === 'activo').length === 0 ? (
-            <p className="text-sm text-gray-400">Sin prescripciones activas</p>
-          ) : (
-            <div className="space-y-2">
-              {prescripciones?.filter(p => p.estado === 'activo').map(p => (
-                <div key={p.id} className="bg-warm-50 border border-cream-400/60 rounded-xl p-3">
-                  <div className="flex items-center justify-between mb-1 gap-2">
-                    <p className="font-semibold text-warm-800 text-sm">{p.medicamento_nombre}</p>
-                    <span className="text-xs bg-info-100 text-info-600 px-2 py-0.5 rounded-full shrink-0">{p.via_administracion}</span>
-                  </div>
-                  <p className="text-xs text-warm-600">Dosis: {p.dosis}</p>
-                  <p className="text-xs text-warm-600">Horarios: {p.horarios?.join(', ')}</p>
-                  <div className="flex gap-3 mt-2 flex-wrap">
-                    <button onClick={() => setModalTomas(p)} className="text-xs text-warm-600 hover:text-warm-800 font-semibold inline-flex items-center gap-1 transition"><Pill size={12} /> Registrar / ver tomas</button>
-                    {esAdmin && (
-                      <button onClick={() => mutacionFinalizarPrescripcion.mutate(p.id)} className="text-xs text-danger-600 hover:text-danger-700 font-semibold transition">Finalizar</button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+          {/* Filtro activas / finalizadas / todas */}
+          <div className="flex gap-2 mb-3 flex-wrap">
+            {[
+              { key: 'activo', label: 'Activas' },
+              { key: 'finalizado', label: 'Finalizadas' },
+              { key: 'todos', label: 'Todas' },
+            ].map(f => {
+              const count = f.key === 'todos'
+                ? prescripciones?.length || 0
+                : prescripciones?.filter(p => p.estado === f.key).length || 0
+              return (
+                <button key={f.key} onClick={() => { setFiltroPrescripciones(f.key); setBuscarPrescripcion('') }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition
+                    ${filtroPrescripciones === f.key
+                      ? 'bg-warm-600 text-white'
+                      : 'bg-warm-100 text-warm-600 hover:bg-warm-200'}`}>
+                  {f.label} ({count})
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Buscador (solo en finalizadas/todas, que están limitadas a 4) */}
+          {filtroPrescripciones !== 'activo' && (
+            <input type="text" value={buscarPrescripcion}
+              onChange={e => setBuscarPrescripcion(e.target.value)}
+              placeholder="Buscar por nombre de medicamento…"
+              className="w-full mb-3 px-3 py-2 border border-cream-400 rounded-xl text-sm bg-warm-50 text-warm-800 focus:outline-none focus:ring-2 focus:ring-warm-400" />
           )}
 
-          {/* Finalizadas */}
-          {prescripciones?.filter(p => p.estado === 'finalizado').length > 0 && (
-            <div className="mt-4 pt-4 border-t border-cream-400">
-              <p className="text-xs font-bold text-warm-500 uppercase mb-2">Finalizadas</p>
-              <div className="space-y-2">
-                {prescripciones?.filter(p => p.estado === 'finalizado').map(p => (
-                  <div key={p.id} className="bg-warm-50 border border-cream-400/60 rounded-xl p-3 opacity-75">
-                    <div className="flex items-center justify-between mb-1 gap-2">
-                      <p className="font-semibold text-warm-600 text-sm">{p.medicamento_nombre}</p>
-                      <span className="text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full shrink-0">Finalizada</span>
-                    </div>
-                    <p className="text-xs text-warm-500">Dosis: {p.dosis} · {p.via_administracion}</p>
-                    <p className="text-xs text-warm-500">{p.fecha_inicio} → {p.fecha_fin || 'sin fecha fin'}</p>
-                    <button onClick={() => setModalTomas(p)} className="text-xs text-warm-600 hover:text-warm-800 font-semibold mt-1 inline-flex items-center gap-1 transition"><ClipboardList size={12} /> Ver tomas</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {(() => {
+            let lista = prescripciones?.filter(p =>
+              filtroPrescripciones === 'todos' ? true : p.estado === filtroPrescripciones
+            ) || []
+
+            const q = buscarPrescripcion.trim().toLowerCase()
+            if (filtroPrescripciones !== 'activo' && q) {
+              lista = lista.filter(p => p.medicamento_nombre?.toLowerCase().includes(q))
+            }
+
+            const limitar = filtroPrescripciones !== 'activo' && !q
+            const visibles = limitar ? lista.slice(0, 4) : lista
+
+            if (visibles.length === 0) {
+              return <p className="text-sm text-gray-400">Sin prescripciones para mostrar</p>
+            }
+
+            return (
+              <>
+                <div className="space-y-2">
+                  {visibles.map(p => {
+                    const finalizada = p.estado === 'finalizado'
+                    const archivado = p.medicamento_estado === 'archivado'
+                    const editable = esAdmin && !finalizada && (p.num_administraciones || 0) === 0
+                    return (
+                      <div key={p.id} className={`bg-warm-50 border border-cream-400/60 rounded-xl p-3 ${finalizada ? 'opacity-75' : ''}`}>
+                        <div className="flex items-center justify-between mb-1 gap-2">
+                          <p className={`font-semibold text-sm ${finalizada ? 'text-warm-600' : 'text-warm-800'}`}>{p.medicamento_nombre}</p>
+                          {finalizada
+                            ? <span className="text-xs bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full shrink-0">Finalizada</span>
+                            : <span className="text-xs bg-info-100 text-info-600 px-2 py-0.5 rounded-full shrink-0">{p.via_administracion}</span>}
+                        </div>
+
+                        {archivado && !finalizada && (
+                          <p className="text-xs text-danger-600 bg-danger-100 rounded-lg px-2 py-1 mb-1 inline-flex items-center gap-1">
+                            <AlertTriangle size={12} /> Medicamento archivado — no se puede administrar
+                          </p>
+                        )}
+
+                        <p className="text-xs text-warm-600">Dosis: {p.dosis}</p>
+                        {finalizada
+                          ? <p className="text-xs text-warm-500">{p.fecha_inicio} → {p.fecha_fin || 'sin fecha fin'}</p>
+                          : <p className="text-xs text-warm-600">Horarios: {p.horarios?.join(', ')}</p>}
+
+                        <div className="flex gap-3 mt-2 flex-wrap">
+                          <button onClick={() => setModalTomas(p)} className="text-xs text-warm-600 hover:text-warm-800 font-semibold inline-flex items-center gap-1 transition">
+                            <Pill size={12} /> {finalizada ? 'Ver tomas' : 'Registrar / ver tomas'}
+                          </button>
+                          {editable && (
+                            <button onClick={() => setModalEditarPrescripcion(p)} className="text-xs text-warm-600 hover:text-warm-800 font-semibold transition">Editar</button>
+                          )}
+                          {!finalizada && (
+                            <button onClick={() => mutacionFinalizarPrescripcion.mutate(p.id)} className="text-xs text-danger-600 hover:text-danger-700 font-semibold transition">Finalizar</button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                {limitar && lista.length > 4 && (
+                  <p className="text-xs text-warm-400 mt-2">Mostrando 4 de {lista.length}. Usa el buscador para ver más.</p>
+                )}
+              </>
+            )
+          })()}
         </SeccionCard>
 
         {/* ── Visitantes autorizados ── */}
@@ -508,6 +590,11 @@ export default function ResidenteDetalle() {
             </div>
           )}
         </SeccionCard>
+        
+        {/* ── Actividades en las que participa ── */}
+        <SeccionCard titulo="Historial de actividades" icono={Activity}>
+          <ActividadesDelResidente residenteId={id} />
+        </SeccionCard>
 
       </div>
 
@@ -522,6 +609,12 @@ export default function ResidenteDetalle() {
           onClose={() => setModalPrescribir(false)}
           onGuardado={() => queryClient.invalidateQueries(['prescripciones', id])} />
       )}
+      {modalEditarPrescripcion && (
+        <ModalPrescribir residenteId={id}
+          prescripcionInicial={modalEditarPrescripcion}
+          onClose={() => setModalEditarPrescripcion(null)}
+          onGuardado={() => { queryClient.invalidateQueries(['prescripciones', id]); setModalEditarPrescripcion(null) }} />
+      )}
       {modalTomas && (
         <ModalTomas prescripcion={modalTomas} residenteId={id}
           onClose={() => setModalTomas(null)} />
@@ -533,7 +626,7 @@ export default function ResidenteDetalle() {
         <ModalRestricciones residenteId={id} onClose={() => setModalRestricciones(false)} />
       )}
       {modalPlan && (
-        <ModalPlanNutricional residenteId={id} onClose={() => setModalPlan(false)} />
+        <ModalPlanNutricional residenteId={id} esAdmin={esAdmin} onClose={() => setModalPlan(false)} />
       )}
     </div>
   )
